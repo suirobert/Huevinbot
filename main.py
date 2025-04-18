@@ -157,8 +157,11 @@ async def play_next(ctx):
 
     vc.play(source, after=after)
 
+    # Nuevo formato visual para la canción actual
     embed = discord.Embed(color=discord.Color.purple())
-    embed.description = f"<a:disco:123456789012345678>  **{title}**\n⏱️  {dur // 60}:{dur % 60:02d}\n👤  {requester.mention}"
+    embed.description = f"<a:cd:123456789012345678>  **{title}**"  # Aquí se usa el emoji :cd:
+    embed.add_field(name="⏱️ Duración:", value=f"[{str(timedelta(seconds=dur))}]", inline=False)
+    embed.add_field(name="👤 Solicitado por:", value=f"[{requester.mention}](https://discord.com/users/{requester.id})", inline=False)
     embed.set_thumbnail(url=thumb)
     await ctx.send(embed=embed, view=MusicControls(bot, ctx))
 
