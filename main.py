@@ -69,12 +69,14 @@ def get_youtube_url(search_query):
         print(f"Error en yt_dlp: {e}")
     return None, None, None, 0, None, None
 
-def get_spotify_track_name(url):
+def get_spotify_track_info(url):
     try:
         track_info = sp.track(url)
-        return f"{track_info['name']} {track_info['artists'][0]['name']}"
+        name = f"{track_info['name']} {track_info['artists'][0]['name']}"
+        image = track_info['album']['images'][0]['url'] if track_info['album']['images'] else None
+        return name, image
     except:
-        return None
+        return None, None
 
 class MusicControls(discord.ui.View):
     def __init__(self, bot, ctx):
@@ -123,13 +125,19 @@ async def play(ctx, *, query: str):
         return await ctx.send("Debes estar en un canal de voz.")
 
     vc = ctx.voice_client or await ctx.author.voice.channel.connect()
-    if "spotify.com/track" in query:
-        query = get_spotify_track_name(query)
-        if not query:
-            return await ctx.send("No se pudo obtener información de Spotify.")
 
-    queue.append((query, ctx.author))
-    await ctx.send(f"🎵 Añadido: **{query}**")
+    image_url = None
+    if "spotify.com/track" in query:
+        track_name, image_url = get_spotify_track_info(query)
+        if not track_name:
+            return await ctx.send("No se pudo obtener información de Spotify.")
+        query = track_name
+
+    queue.append((query, ctx.author, image_url))
+
+    embed_added = discord.Embed(description=f"🎵 Añadido: **{query}**", color=discord.Color.green())
+    await ctx.send(embed=embed_added)
+
     if not vc.is_playing() and not vc.is_paused():
         await play_next(ctx)
 
@@ -137,7 +145,7 @@ async def play_next(ctx):
     if not queue:
         return
 
-    query, requester = queue.pop(0)
+    query, requester, image_url = queue.pop(0)
     vc = ctx.voice_client
     if not vc:
         return
@@ -150,6 +158,7 @@ async def play_next(ctx):
         return await play_next(ctx)
 
     source = discord.FFmpegPCMAudio(url, executable='ffmpeg', before_options='-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', options='-vn')
+
     def after(e):
         if e:
             print(f"Error: {e}")
@@ -157,12 +166,11 @@ async def play_next(ctx):
 
     vc.play(source, after=after)
 
-    # Nuevo formato visual para la canción actual
-    embed = discord.Embed(color=discord.Color.purple())
-    embed.description = f"<a:cd:123456789012345678>  **{title}**"  # Aquí se usa el emoji :cd:
-    embed.add_field(name="⏱️ Duración:", value=f"[{str(timedelta(seconds=dur))}]", inline=False)
-    embed.add_field(name="👤 Solicitado por:", value=f"[{requester.mention}](https://discord.com/users/{requester.id})", inline=False)
-    embed.set_thumbnail(url=thumb)
+    clean_title = title.split('(')[0].strip()
+    embed = discord.Embed(color=discord.Color.purple(), description=f":cd:  **{clean_title}**")
+    embed.add_field(name="​", value=f"**Duración:** [{dur // 60}:{dur % 60:02d}]
+**Solicitado por:** [{requester.display_name}]", inline=False)
+    embed.set_thumbnail(url=image_url or thumb)
     await ctx.send(embed=embed, view=MusicControls(bot, ctx))
 
 @bot.command()
