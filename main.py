@@ -15,7 +15,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
 
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix='-', intents=intents)
 
 # Spotify setup
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
@@ -29,18 +29,14 @@ sp = Spotify(auth_manager=SpotifyClientCredentials(
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Cola de reproducción
 queue = []
-
-# ID del canal permitido para !huevin
 ALLOWED_CHANNEL_ID = 1108528856408805417
-# ID del rol permitido para usar !huevin
-FRIENDS_ROLE_ID = 714948180617330728
-
-# Memoria de conversaciones por usuario solo para !huevin
+ALLOWED_ROLE_ID = 714948180617330728
 user_conversations = {}
 CONVERSATION_TIMEOUT = timedelta(minutes=30)
 MAX_HISTORY = 3
+
+# FUNCIONES DE SOPORTE
 
 def manage_conversation(user_id, user_message, bot_response):
     current_time = datetime.now()
@@ -51,10 +47,7 @@ def manage_conversation(user_id, user_message, bot_response):
     user_conversations[user_id]['last_active'] = current_time
     if len(user_conversations[user_id]['history']) > MAX_HISTORY * 2:
         user_conversations[user_id]['history'] = user_conversations[user_id]['history'][-MAX_HISTORY * 2:]
-    to_remove = []
-    for uid, data in user_conversations.items():
-        if current_time - data['last_active'] > CONVERSATION_TIMEOUT:
-            to_remove.append(uid)
+    to_remove = [uid for uid, data in user_conversations.items() if current_time - data['last_active'] > CONVERSATION_TIMEOUT]
     for uid in to_remove:
         del user_conversations[uid]
 
@@ -69,20 +62,18 @@ def get_youtube_url(search_query):
     try:
         with youtube_dl.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"ytsearch:{search_query}", download=False)
-            if 'entries' in info and len(info['entries']) > 0:
+            if 'entries' in info and info['entries']:
                 entry = info['entries'][0]
                 return entry.get('url'), entry.get('title'), entry.get('thumbnail'), entry.get('duration', 0), f"https://www.youtube.com/watch?v={entry.get('id')}", entry.get('uploader', 'Desconocido')
-            return None, None, None, 0, None, None
     except Exception as e:
         print(f"Error en yt_dlp: {e}")
-        return None, None, None, 0, None, None
+    return None, None, None, 0, None, None
 
 def get_spotify_track_name(url):
     try:
         track_info = sp.track(url)
         return f"{track_info['name']} {track_info['artists'][0]['name']}"
-    except Exception as e:
-        print(f"Error en Spotify: {e}")
+    except:
         return None
 
 class MusicControls(discord.ui.View):
@@ -92,201 +83,133 @@ class MusicControls(discord.ui.View):
         self.ctx = ctx
 
     @discord.ui.button(label="", emoji="⏯️", style=discord.ButtonStyle.primary)
-    async def pause_resume(self, interaction: discord.Interaction, button: discord.ui.Button):
-        voice_client = self.ctx.voice_client
-        if not voice_client:
-            await interaction.response.send_message("No estoy conectado a un canal de voz.", ephemeral=True)
-            return
-        if voice_client.is_playing():
-            voice_client.pause()
+    async def pause_resume(self, interaction, button):
+        vc = self.ctx.voice_client
+        if not vc:
+            return await interaction.response.send_message("No estoy conectado.", ephemeral=True)
+        if vc.is_playing():
+            vc.pause()
             await interaction.response.send_message("Pausado.", ephemeral=True)
-        elif voice_client.is_paused():
-            voice_client.resume()
+        elif vc.is_paused():
+            vc.resume()
             await interaction.response.send_message("Reanudado.", ephemeral=True)
-        else:
-            await interaction.response.send_message("No hay nada reproduciendo.", ephemeral=True)
 
     @discord.ui.button(label="", emoji="⏭️", style=discord.ButtonStyle.secondary)
-    async def next_song(self, interaction: discord.Interaction, button: discord.ui.Button):
-        voice_client = self.ctx.voice_client
-        if not voice_client:
-            await interaction.response.send_message("No estoy conectado a un canal de voz.", ephemeral=True)
-            return
+    async def next_song(self, interaction, button):
+        vc = self.ctx.voice_client
+        if not vc:
+            return await interaction.response.send_message("No conectado.", ephemeral=True)
         if not queue:
-            await interaction.response.send_message("No hay más canciones en la cola.", ephemeral=True)
-            return
+            return await interaction.response.send_message("Cola vacía.", ephemeral=True)
         await interaction.response.defer()
-        loading_message = await self.ctx.send(embed=discord.Embed(description="⏳ Buscando la siguiente canción...", color=discord.Color.blue()))
-        voice_client.stop()
+        vc.stop()
         await play_next(self.ctx)
-        await loading_message.delete()
 
     @discord.ui.button(label="", emoji="⏹️", style=discord.ButtonStyle.danger)
-    async def stop(self, interaction: discord.Interaction, button: discord.ui.Button):
-        voice_client = self.ctx.voice_client
-        if not voice_client:
-            await interaction.response.send_message("No estoy conectado a un canal de voz.", ephemeral=True)
-            return
+    async def stop(self, interaction, button):
+        vc = self.ctx.voice_client
+        if not vc:
+            return await interaction.response.send_message("No conectado.", ephemeral=True)
         queue.clear()
-        voice_client.stop()
+        vc.stop()
         await asyncio.sleep(0.5)
-        await voice_client.disconnect()
-        await interaction.response.send_message("Reproducción detenida y desconectado.", ephemeral=True)
+        await vc.disconnect()
+        await interaction.response.send_message("Detenido y desconectado.", ephemeral=True)
         self.clear_items()
 
 @bot.command()
 async def play(ctx, *, query: str):
-    try:
-        if ctx.author.voice is None:
-            await ctx.send(embed=discord.Embed(description="Debes estar en un canal de voz.", color=discord.Color.red()))
-            return
+    if ctx.author.voice is None:
+        return await ctx.send("Debes estar en un canal de voz.")
 
-        voice_client = ctx.voice_client
-        if not voice_client:
-            voice_client = await ctx.author.voice.channel.connect()
+    vc = ctx.voice_client or await ctx.author.voice.channel.connect()
+    if "spotify.com/track" in query:
+        query = get_spotify_track_name(query)
+        if not query:
+            return await ctx.send("No se pudo obtener información de Spotify.")
 
-        if "spotify.com/track" in query:
-            query = get_spotify_track_name(query)
-            if not query:
-                await ctx.send(embed=discord.Embed(description="No se pudo obtener la información de Spotify.", color=discord.Color.red()))
-                return
-
-        queue.append(query)
-        await ctx.send(embed=discord.Embed(description=f"🎵 Añadido a la cola: **{query}**", color=discord.Color.green()))
-        if not voice_client.is_playing() and not voice_client.is_paused():
-            loading_message = await ctx.send(embed=discord.Embed(description="⏳ Buscando canción...", color=discord.Color.blue()))
-            await play_next(ctx)
-            await loading_message.delete()
-    except Exception as e:
-        await ctx.send(embed=discord.Embed(description=f"Ocurrió un error: {str(e)}", color=discord.Color.red()))
+    queue.append((query, ctx.author))
+    await ctx.send(f"🎵 Añadido: **{query}**")
+    if not vc.is_playing() and not vc.is_paused():
+        await play_next(ctx)
 
 async def play_next(ctx):
-    try:
-        if not queue:
-            return
-        query = queue.pop(0)
-        voice_client = ctx.voice_client
-        if not voice_client:
-            return
-
-        audio_url, title, thumbnail, duration, video_url, uploader = get_youtube_url(query)
-        if not audio_url:
-            await ctx.send(embed=discord.Embed(description="No se encontró ningún resultado en YouTube.", color=discord.Color.red()))
-            await play_next(ctx)
-            return
-
-        if audio_url.endswith(".m3u8") or audio_url.startswith("https://www.youtube.com/"):
-            await ctx.send(embed=discord.Embed(description="Error: Formato de audio no compatible.", color=discord.Color.red()))
-            await play_next(ctx)
-            return
-
-        ffmpeg_options = {
-            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -re',
-            'options': '-vn -bufsize 64k'
-        }
-        audio_source = discord.FFmpegPCMAudio(audio_url, executable='ffmpeg', **ffmpeg_options)
-
-        def after_playing(error):
-            if error:
-                print(f"Error al reproducir: {error}")
-            asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop)
-
-        embed = discord.Embed(color=discord.Color.blue())
-        embed.set_author(name="Ahora reproduciendo 🎵", icon_url=bot.user.avatar.url if bot.user.avatar else None)
-        embed.title = title
-        embed.url = video_url
-        embed.add_field(name="Canal", value=uploader, inline=True)
-        duration_seconds = int(duration) if duration else 0
-        embed.add_field(name="Duración", value=f"{duration_seconds // 60}:{duration_seconds % 60:02d}" if duration_seconds else "Desconocida", inline=True)
-        embed.add_field(name="En cola", value=str(len(queue)), inline=True)
-        if thumbnail:
-            embed.set_thumbnail(url=thumbnail)
-        embed.set_footer(text="Usa los botones para controlar la reproducción")
-
-        voice_client.play(audio_source, after=after_playing)
-        await ctx.send(embed=embed, view=MusicControls(bot, ctx))
-
-    except Exception as e:
-        await ctx.send(embed=discord.Embed(description=f"Ocurrió un error: {str(e)}", color=discord.Color.red()))
-
-@bot.command()
-async def queue_add(ctx, *, query: str):
-    queue.append(query)
-    await ctx.send(embed=discord.Embed(description=f"🎵 Añadido a la cola: **{query}**", color=discord.Color.green()))
-
-@bot.command()
-async def queue_list(ctx):
     if not queue:
-        await ctx.send(embed=discord.Embed(description="La cola está vacía.", color=discord.Color.orange()))
         return
-    embed = discord.Embed(title="Cola de reproducción", color=discord.Color.green())
-    for i, song in enumerate(queue, 1):
-        embed.add_field(name=f"{i}.", value=song, inline=False)
-    await ctx.send(embed=embed)
 
-@bot.command()
-async def clear(ctx):
-    if not queue:
-        await ctx.send(embed=discord.Embed(description="La cola ya está vacía.", color=discord.Color.orange()))
+    query, requester = queue.pop(0)
+    vc = ctx.voice_client
+    if not vc:
         return
-    queue.clear()
-    await ctx.send(embed=discord.Embed(description="🗑️ La cola ha sido limpiada.", color=discord.Color.green()))
+
+    url, title, thumb, dur, vid_url, uploader = get_youtube_url(query)
+    if not url:
+        return await play_next(ctx)
+
+    if url.endswith(".m3u8"):
+        return await play_next(ctx)
+
+    source = discord.FFmpegPCMAudio(url, executable='ffmpeg', before_options='-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', options='-vn')
+    def after(e):
+        if e:
+            print(f"Error: {e}")
+        asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop)
+
+    vc.play(source, after=after)
+
+    embed = discord.Embed(color=discord.Color.purple())
+    embed.description = f"<a:disco:123456789012345678>  **{title}**\n⏱️  {dur // 60}:{dur % 60:02d}\n👤  {requester.mention}"
+    embed.set_thumbnail(url=thumb)
+    await ctx.send(embed=embed, view=MusicControls(bot, ctx))
 
 @bot.command()
 async def leave(ctx):
     if ctx.voice_client:
         queue.clear()
         await ctx.voice_client.disconnect()
-        await ctx.send(embed=discord.Embed(description="👋 Me salí del canal de voz.", color=discord.Color.blue()))
-    else:
-        await ctx.send(embed=discord.Embed(description="No estoy conectado a ningún canal de voz.", color=discord.Color.red()))
+        await ctx.send("👋 Me salí del canal de voz.")
+
+@bot.command()
+async def comandos(ctx):
+    desc = (
+        "**Comandos disponibles:**\n"
+        "-play <nombre>: Busca y reproduce música de YouTube o Spotify.\n"
+        "-leave: Desconecta al bot.\n"
+        "-comandos: Muestra este mensaje.\n"
+        "-huevin <mensaje>: Habla con Huevin (solo canal autorizado y rol @Friends)."
+    )
+    await ctx.send(embed=discord.Embed(description=desc, color=discord.Color.teal()))
 
 @bot.command()
 async def huevin(ctx, *, message: str):
-    try:
-        if ctx.channel.id != ALLOWED_CHANNEL_ID:
-            channel = bot.get_channel(ALLOWED_CHANNEL_ID)
-            channel_name = channel.name if channel else f"el canal con ID {ALLOWED_CHANNEL_ID}"
-            await ctx.send(f"{ctx.author.mention} Qué va, este comando es solo para #{channel_name}. ¡Muévete pa’llá!")
-            return
+    if ctx.channel.id != ALLOWED_CHANNEL_ID:
+        return await ctx.send(f"Este comando solo está permitido en <#{ALLOWED_CHANNEL_ID}>.")
 
-        if FRIENDS_ROLE_ID not in [role.id for role in ctx.author.roles]:
-            await ctx.send(f"{ctx.author.mention} Ehhh no, este comando es exclusivo pa' los panas con rol de confianza. Tú no calificas, sorry.")
-            return
+    if not any(role.id == ALLOWED_ROLE_ID for role in ctx.author.roles):
+        return await ctx.send("No tienes permiso para usar este comando, necesitas el rol @Friends.")
 
-        user_id = ctx.author.id
-        conversation = user_conversations.get(user_id, {'history': []})['history']
-        messages = [
-            {"role": "system", "content": "Habla con humor negro y sarcasmo cabrón, sin filtros. Usa apodos duros (inútil, pendejo, cerebrito). Respuestas cortas, directas, máximo 60 palabras."}
-        ] + conversation + [{"role": "user", "content": message}]
+    user_id = ctx.author.id
+    conversation = user_conversations.get(user_id, {'history': []})['history']
 
-        response = openai_client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=messages,
-            max_tokens=75,
-            temperature=1.0
-        )
-        reply = response.choices[0].message.content.strip()
+    messages = [
+        {"role": "system", "content": "Habla con humor negro y sarcasmo cabrón. Usa apodos duros. Máx 60 palabras."}
+    ] + conversation + [{"role": "user", "content": message}]
 
-        manage_conversation(user_id, message, reply)
-        await ctx.send(f"{ctx.author.mention} {reply}")
+    response = openai_client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=messages,
+        max_tokens=75,
+        temperature=1.0
+    )
+    reply = response.choices[0].message.content.strip()
 
-    except Exception as e:
-        await ctx.send(f"{ctx.author.mention} ¡La cagué! Error: {str(e)}")
+    manage_conversation(user_id, message, reply)
+    await ctx.send(f"{ctx.author.mention} {reply}")
 
 @bot.event
-async def on_voice_state_update(member, before, after):
-    if member == bot.user and before.channel and not after.channel:
-        queue.clear()
-        if hasattr(bot, 'last_channel') and bot.last_channel:
-            try:
-                await bot.last_channel.send(embed=discord.Embed(description="Fui desconectado del canal de voz. La cola ha sido limpiada.", color=discord.Color.red()))
-            except discord.errors.Forbidden:
-                pass
-        bot.last_channel = None
-
-@bot.event
-async def on_command(ctx):
-    bot.last_channel = ctx.channel
+async def on_ready():
+    activity = discord.Game(name="insultando inútiles")
+    await bot.change_presence(activity=activity)
+    print(f"Bot conectado como {bot.user}")
 
 bot.run(os.getenv("DISCORD_TOKEN"))
