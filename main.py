@@ -7,7 +7,7 @@ import os
 from dotenv import load_dotenv
 import asyncio
 from openai import OpenAI
-from datetime import datetime, timedelta
+from datetime import datetime
 
 load_dotenv()
 
@@ -35,38 +35,6 @@ queue = []
 # ID del canal permitido para !huevin
 ALLOWED_CHANNEL_ID = 1108528856408805417
 
-# Memoria de conversaciones por usuario
-user_conversations = {}
-CONVERSATION_TIMEOUT = timedelta(minutes=30)  # Limpiar historial tras 30 min de inactividad
-MAX_HISTORY = 3  # Optimizado para ahorrar tokens
-
-# Función para gestionar el historial de conversaciones
-def manage_conversation(user_id, user_message, bot_response):
-    current_time = datetime.now()
-    if user_id not in user_conversations:
-        user_conversations[user_id] = {'history': [], 'last_active': current_time}
-    
-    # Añadir nuevo mensaje al historial
-    user_conversations[user_id]['history'].append(
-        {"role": "user", "content": user_message}
-    )
-    user_conversations[user_id]['history'].append(
-        {"role": "assistant", "content": bot_response}
-    )
-    user_conversations[user_id]['last_active'] = current_time
-    
-    # Limitar historial a MAX_HISTORY interacciones (2 mensajes por interacción)
-    if len(user_conversations[user_id]['history']) > MAX_HISTORY * 2:
-        user_conversations[user_id]['history'] = user_conversations[user_id]['history'][-MAX_HISTORY * 2:]
-    
-    # Limpiar historiales inactivos
-    to_remove = []
-    for uid, data in user_conversations.items():
-        if current_time - data['last_active'] > CONVERSATION_TIMEOUT:
-            to_remove.append(uid)
-    for uid in to_remove:
-        del user_conversations[uid]
-
 # Función para obtener el enlace, título, miniatura y duración de YouTube
 def get_youtube_url(search_query):
     ydl_opts = {
@@ -87,12 +55,8 @@ def get_youtube_url(search_query):
                 duration = entry.get('duration', 0)
                 video_url = f"https://www.youtube.com/watch?v={entry.get('id')}"
                 uploader = entry.get('uploader', 'Desconocido')
-                print(f"URL de audio encontrada: {audio_url}")
-                print(f"Duración: {duration}")
-                print(f"Formatos disponibles: {[f.get('ext') for f in entry.get('formats', [])]}")
                 return audio_url, title, thumbnail, duration, video_url, uploader
             else:
-                print("No se encontró URL de audio.")
                 return None, None, None, 0, None, None
     except Exception as e:
         print(f"Error en yt_dlp: {e}")
@@ -139,11 +103,10 @@ class MusicControls(discord.ui.View):
             await interaction.response.send_message("No hay más canciones en la cola.", ephemeral=True)
             return
         
-        # Responde a la interacción inmediatamente
-        await interaction.response.defer()  # Diferimos la respuesta para evitar timeout
+        await interaction.response.defer()
         loading_message = await self.ctx.send(embed=discord.Embed(description="⏳ Buscando la siguiente canción...", color=discord.Color.blue()))
-        voice_client.stop()  # Detiene la canción actual
-        await play_next(self.ctx)  # Llama a play_next para reproducir la siguiente
+        voice_client.stop()
+        await play_next(self.ctx)
         await loading_message.delete()
 
     @discord.ui.button(label="", emoji="⏹️", style=discord.ButtonStyle.danger)
@@ -276,22 +239,28 @@ async def leave(ctx):
     else:
         await ctx.send(embed=discord.Embed(description="No estoy conectado a ningún canal de voz.", color=discord.Color.red()))
 
-# Comando !huevin con GPT-3.5-turbo, humor crudo, mensaje normal con mención
+@bot.command(name="comandos")
+async def comandos(ctx):
+    embed = discord.Embed(title="📜 Comandos disponibles", color=discord.Color.purple())
+    embed.add_field(name="🎧 !play [canción o link]", value="Reproduce una canción desde YouTube o Spotify.", inline=False)
+    embed.add_field(name="➕ !queue_add [canción]", value="Agrega una canción a la cola.", inline=False)
+    embed.add_field(name="📋 !queue_list", value="Muestra la cola de canciones actual.", inline=False)
+    embed.add_field(name="🧹 !clear", value="Limpia toda la cola de reproducción.", inline=False)
+    embed.add_field(name="👋 !leave", value="Saca al bot del canal de voz y limpia la cola.", inline=False)
+    embed.add_field(name="🧠 !huevin [mensaje]", value="Interactúa con el bot (solo en canal permitido). Responde con humor negro y sarcasmo.", inline=False)
+    embed.add_field(name="ℹ️ !comandos", value="Muestra esta lista de comandos disponibles.", inline=False)
+    await ctx.send(embed=embed)
+
+# Comando !huevin con GPT-3.5-turbo
 @bot.command()
 async def huevin(ctx, *, message: str):
     try:
-        # Verificar si el comando se usa en el canal permitido
         if ctx.channel.id != ALLOWED_CHANNEL_ID:
             channel = bot.get_channel(ALLOWED_CHANNEL_ID)
             channel_name = channel.name if channel else f"el canal con ID {ALLOWED_CHANNEL_ID}"
             await ctx.send(f"{ctx.author.mention} Qué va, este comando es solo para #{channel_name}. ¡Muévete pa’llá!")
             return
 
-        # Obtener historial del usuario
-        user_id = ctx.author.id
-        conversation = user_conversations.get(user_id, {'history': []})['history']
-        
-        # Crear mensajes para OpenAI con historial
         messages = [
             {
                 "role": "system",
@@ -299,22 +268,21 @@ async def huevin(ctx, *, message: str):
                     "Habla con humor negro y sarcasmo cabrón, sin filtros. Usa apodos duros (inútil, pendejo, cerebrito). "
                     "Respuestas cortas, directas, máximo 60 palabras."
                 )
-            }
-        ] + conversation + [{"role": "user", "content": message}]
+            },
+            {"role": "user", "content": message}
+        ]
 
-        # Enviar solicitud a OpenAI con GPT-3.5-turbo
         response = openai_client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=messages,
-            max_tokens=75,  # Optimizado (~50-60 palabras)
-            temperature=1.0  # Máxima creatividad para humor crudo
+            max_tokens=75,
+            temperature=1.0
         )
+
         reply = response.choices[0].message.content.strip()
+        token_usage = response.usage.total_tokens if response.usage else "N/A"
 
-        # Guardar la conversación
-        manage_conversation(user_id, message, reply)
-
-        # Enviar respuesta como mensaje normal con mención
+        print(f"[GPT LOG] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Usuario: {ctx.author.name} ({ctx.author.id}) - Mensaje: '{message}' - Tokens: {token_usage}")
         await ctx.send(f"{ctx.author.mention} {reply}")
 
     except Exception as e:
