@@ -37,7 +37,6 @@ CONVERSATION_TIMEOUT = timedelta(minutes=30)
 MAX_HISTORY = 3
 
 # FUNCIONES DE SOPORTE
-
 def manage_conversation(user_id, user_message, bot_response):
     current_time = datetime.now()
     if user_id not in user_conversations:
@@ -69,14 +68,12 @@ def get_youtube_url(search_query):
         print(f"Error en yt_dlp: {e}")
     return None, None, None, 0, None, None
 
-def get_spotify_track_info(url):
+def get_spotify_track_name(url):
     try:
         track_info = sp.track(url)
-        name = f"{track_info['name']} {track_info['artists'][0]['name']}"
-        image = track_info['album']['images'][0]['url'] if track_info['album']['images'] else None
-        return name, image
+        return f"{track_info['name']} {track_info['artists'][0]['name']}"
     except:
-        return None, None
+        return None
 
 class MusicControls(discord.ui.View):
     def __init__(self, bot, ctx):
@@ -125,18 +122,15 @@ async def play(ctx, *, query: str):
         return await ctx.send("Debes estar en un canal de voz.")
 
     vc = ctx.voice_client or await ctx.author.voice.channel.connect()
-
-    image_url = None
     if "spotify.com/track" in query:
-        track_name, image_url = get_spotify_track_info(query)
-        if not track_name:
+        query = get_spotify_track_name(query)
+        if not query:
             return await ctx.send("No se pudo obtener información de Spotify.")
-        query = track_name
 
-    queue.append((query, ctx.author, image_url))
+    queue.append((query, ctx.author))
 
-    embed_added = discord.Embed(description=f"🎵 Añadido: **{query}**", color=discord.Color.green())
-    await ctx.send(embed=embed_added)
+    añadido = discord.Embed(description=f"🎵 Añadido: **{query}**", color=discord.Color.green())
+    await ctx.send(embed=añadido)
 
     if not vc.is_playing() and not vc.is_paused():
         await play_next(ctx)
@@ -145,7 +139,7 @@ async def play_next(ctx):
     if not queue:
         return
 
-    query, requester, image_url = queue.pop(0)
+    query, requester = queue.pop(0)
     vc = ctx.voice_client
     if not vc:
         return
@@ -158,7 +152,6 @@ async def play_next(ctx):
         return await play_next(ctx)
 
     source = discord.FFmpegPCMAudio(url, executable='ffmpeg', before_options='-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', options='-vn')
-
     def after(e):
         if e:
             print(f"Error: {e}")
@@ -166,11 +159,15 @@ async def play_next(ctx):
 
     vc.play(source, after=after)
 
-    clean_title = title.split('(')[0].strip()
-    embed = discord.Embed(color=discord.Color.purple(), description=f":cd:  **{clean_title}**")
-    embed.add_field(name="​", value=f"**Duración:** [{dur // 60}:{dur % 60:02d}]
-**Solicitado por:** [{requester.display_name}]", inline=False)
-    embed.set_thumbnail(url=image_url or thumb)
+    embed = discord.Embed(color=discord.Color.purple())
+    embed.description = f":cd:  **{title.split(' (')[0].strip()}**"
+    embed.set_thumbnail(url=thumb)
+    embed.add_field(
+        name="\u200b",
+        value=f"**Duración:** [{dur // 60}:{dur % 60:02d}]\n**Solicitado por:** {requester.mention}",
+        inline=False
+    )
+
     await ctx.send(embed=embed, view=MusicControls(bot, ctx))
 
 @bot.command()
