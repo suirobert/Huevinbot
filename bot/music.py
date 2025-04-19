@@ -1,7 +1,8 @@
 import discord
 import asyncio
 import concurrent.futures
-from .utils import get_youtube_info, search_spotify, get_spotify_track_info
+import random
+from .utils import get_youtube_info, search_spotify, get_spotify_track_info, get_spotify_playlist_info
 
 # Cola y configuraciones
 queue = []
@@ -47,6 +48,22 @@ class MusicControls(discord.ui.View):
             await asyncio.sleep(1.0)
         print(f"Estado del voice_client después de stop: is_playing={vc.is_playing()}, is_paused={vc.is_paused()}")
         await play_next(self.ctx)
+
+    @discord.ui.button(label="", emoji="📜", style=discord.ButtonStyle.grey)
+    async def show_queue(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        if not queue:
+            return await interaction.followup.send("La cola está vacía. ¡Añade algunas canciones! 🎵", ephemeral=True)
+        
+        embed = discord.Embed(title="📜 Cola de Canciones", color=discord.Color.blue())
+        description = ""
+        for i, (url_or_query, display_query, requester, album_image, dur, is_youtube_url) in enumerate(queue[:10], 1):
+            duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
+            description += f"**{i}.** {display_query.split(' (')[0].strip()} • {duration_str} (por {requester.mention})\n"
+        if len(queue) > 10:
+            description += f"\nY {len(queue) - 10} más..."
+        embed.description = description
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     @discord.ui.button(label="", emoji="⏹️", style=discord.ButtonStyle.danger)
     async def stop(self, interaction: discord.Interaction, button):
@@ -141,57 +158,85 @@ def setup_music_commands(bot):
         if ctx.author.voice is None:
             return await ctx.send("Debes estar en un canal de voz para usar este comando. 🎙️")
 
-        loading_msg = await ctx.send("🔄 Buscando y cargando la canción, espera un momento...")
+        loading_msg = await ctx.send("🔄 Buscando y cargando, espera un momento...")
 
         vc = ctx.voice_client or await ctx.author.voice.channel.connect()
         
-        album_image = None
-        dur = 0
         is_youtube_url = "youtube.com/watch?v=" in query or "youtu.be/" in query
+        is_spotify_track = "spotify.com/track" in query
+        is_spotify_playlist = "spotify.com/playlist" in query
         original_url = query if is_youtube_url else None
         
-        if is_youtube_url:
-            url, title, thumb, dur, vid_url, uploader = await run_in_executor(get_youtube_info, query, True)
-            if not url:
+        if is_spotify_playlist:
+            playlist_tracks = await run_in_executor(get_spotify_playlist_info, query)
+            if not playlist_tracks:
                 await loading_msg.delete()
-                return await ctx.send("No pude obtener la información del video de YouTube. Intenta con otro enlace. 🎵")
-            display_query = title
-            track_name, album_image, dur_spotify = await run_in_executor(search_spotify, title)
-            if track_name:
-                dur = dur_spotify if dur_spotify else dur
-        elif "spotify.com/track" in query:
-            track_name, album_image, dur = await run_in_executor(get_spotify_track_info, query)
-            if not track_name:
-                await loading_msg.delete()
-                return await ctx.send("No pude obtener la información de Spotify. Intenta con otra canción. 🎵")
-            display_query = track_name
+                return await ctx.send("No pude obtener las canciones de la playlist. Intenta con otra. 🎵")
+            
+            for track_name, album_image, dur in playlist_tracks:
+                queue.append((track_name, track_name, ctx.author, album_image, dur, False))
+            
+            embed = discord.Embed(color=discord.Color.blue())
+            embed.description = (
+                f"**Añadidas {len(playlist_tracks)} canciones a la Cola** 🩸\n"
+                f"**Queue Length:** {len(queue)}"
+            )
+            await loading_msg.delete()
+            await ctx.send(embed=embed)
+
         else:
-            track_name, album_image, dur = await run_in_executor(search_spotify, query)
-            if track_name:
-                display_query = track_name
-            else:
-                url, title, thumb, dur, vid_url, uploader = await run_in_executor(get_youtube_info, query, False)
+            album_image = None
+            dur = 0
+            if is_youtube_url:
+                url, title, thumb, dur, vid_url, uploader = await run_in_executor(get_youtube_info, query, True)
                 if not url:
                     await loading_msg.delete()
-                    return await ctx.send("No encontré esa canción en YouTube. Prueba con otra. 🔍")
+                    return await ctx.send("No pude obtener la información del video de YouTube. Intenta con otro enlace. 🎵")
                 display_query = title
+                track_name, album_image, dur_spotify = await run_in_executor(search_spotify, title)
+                if track_name:
+                    dur = dur_spotify if dur_spotify else dur
+            elif is_spotify_track:
+                track_name, album_image, dur = await run_in_executor(get_spotify_track_info, query)
+                if not track_name:
+                    await loading_msg.delete()
+                    return await ctx.send("No pude obtener la información de Spotify. Intenta con otra canción. 🎵")
+                display_query = track_name
+            else:
+                track_name, album_image, dur = await run_in_executor(search_spotify, query)
+                if track_name:
+                    display_query = track_name
+                else:
+                    url, title, thumb, dur, vid_url, uploader = await run_in_executor(get_youtube_info, query, False)
+                    if not url:
+                        await loading_msg.delete()
+                        return await ctx.send("No encontré esa canción en YouTube. Prueba con otra. 🔍")
+                    display_query = title
 
-        queue.append((original_url or display_query, display_query, ctx.author, album_image, dur, is_youtube_url))
+            queue.append((original_url or display_query, display_query, ctx.author, album_image, dur, is_youtube_url))
 
-        duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
-        embed = discord.Embed(color=discord.Color.blue())
-        embed.description = (
-            f"**Añadido a la Cola** 🩸\n"
-            f"**{display_query.split(' (')[0].strip()}** • {duration_str}\n"
-            f"**Queue Length:** {len(queue)}"
-        )
-        if album_image:
-            embed.set_thumbnail(url=album_image)
-        await loading_msg.delete()
-        await ctx.send(embed=embed)
+            duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
+            embed = discord.Embed(color=discord.Color.blue())
+            embed.description = (
+                f"**Añadido a la Cola** 🩸\n"
+                f"**{display_query.split(' (')[0].strip()}** • {duration_str}\n"
+                f"**Queue Length:** {len(queue)}"
+            )
+            if album_image:
+                embed.set_thumbnail(url=album_image)
+            await loading_msg.delete()
+            await ctx.send(embed=embed)
 
         if not vc.is_playing() and not vc.is_paused():
             await play_next(ctx)
+
+    @bot.command()
+    async def shuffle(ctx):
+        if not queue:
+            return await ctx.send("La cola está vacía. ¡Añade algunas canciones primero! 🎵")
+        
+        random.shuffle(queue)
+        await ctx.send("🔀 ¡Cola mezclada! Las canciones ahora se reproducirán en orden aleatorio.")
 
     @bot.command()
     async def leave(ctx):
@@ -211,7 +256,8 @@ def setup_music_commands(bot):
     async def comandos(ctx):
         desc = (
             "**Comandos disponibles:**\n"
-            "-play <nombre>: Busca y reproduce música de YouTube o Spotify. 🎵\n"
+            "-play <nombre o enlace>: Busca y reproduce música de YouTube o Spotify (soporta playlists). 🎵\n"
+            "-shuffle: Mezcla la cola de canciones para reproducirlas en orden aleatorio. 🔀\n"
             "-leave: Desconecta al bot del canal de voz. 👋\n"
             "-comandos: Muestra esta lista de comandos. 📜\n"
             "-huevin <mensaje>: Habla con Huevín (solo en el canal autorizado y con el rol @Friends). 😈"
