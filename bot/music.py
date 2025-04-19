@@ -322,6 +322,7 @@ def setup_music_commands(bot):
 
     @bot.command()
     async def queue(ctx):
+        global queue, audio_ready_queue
         if not audio_ready_queue and not queue:
             return await ctx.send("La cola está vacía. ¡Añade algunas canciones! 🎵")
         
