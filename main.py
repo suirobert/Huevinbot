@@ -84,14 +84,14 @@ def get_spotify_track_info(url):
 
 def get_youtube_info(url_or_query, is_url=False):
     ydl_opts = {
-        'format': 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best',  # Priorizar formatos compatibles
+        'format': 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best',
         'quiet': True,
         'noplaylist': True,
         'default_search': 'ytsearch' if not is_url else None,
-        'extract_flat': False,  # Revertimos para obtener info completa
+        'extract_flat': False,
         'no_warnings': True,
         'ignoreerrors': True,
-        'force_generic_extractor': True,  # Forzar extractor genérico si falla
+        'force_generic_extractor': True,
     }
     try:
         with youtube_dl.YoutubeDL(ydl_opts) as ydl:
@@ -103,7 +103,6 @@ def get_youtube_info(url_or_query, is_url=False):
                     info = info['entries'][0]
             if not info:
                 return None, None, None, 0, None, None
-            # Log para depurar el formato seleccionado
             print(f"Formato seleccionado para {url_or_query}: {info.get('url')}")
             return info.get('url'), info.get('title'), info.get('thumbnail'), info.get('duration', 0), f"https://www.youtube.com/watch?v={info.get('id')}", info.get('uploader', 'Desconocido')
     except Exception as e:
@@ -142,7 +141,11 @@ class MusicControls(discord.ui.View):
             return await interaction.followup.send("No estoy conectado a ningún canal de voz.", ephemeral=True)
         if not queue:
             return await interaction.followup.send("La cola está vacía.", ephemeral=True)
-        vc.stop()
+        # Detenemos la reproducción actual y esperamos un momento para asegurar que termine
+        if vc.is_playing() or vc.is_paused():
+            vc.stop()
+            await asyncio.sleep(0.5)  # Breve espera para que FFmpeg termine
+        print(f"Estado del voice_client después de stop: is_playing={vc.is_playing()}, is_paused={vc.is_paused()}")
         await play_next(self.ctx)
 
     @discord.ui.button(label="", emoji="⏹️", style=discord.ButtonStyle.danger)
@@ -152,8 +155,9 @@ class MusicControls(discord.ui.View):
         if not vc:
             return await interaction.followup.send("No estoy conectado a ningún canal de voz.", ephemeral=True)
         queue.clear()
-        vc.stop()
-        await asyncio.sleep(0.5)
+        if vc.is_playing() or vc.is_paused():
+            vc.stop()
+            await asyncio.sleep(0.5)
         await vc.disconnect()
         await interaction.followup.send("Reproducción detenida y desconectado. 🛑", ephemeral=True)
         self.clear_items()
@@ -175,40 +179,33 @@ async def play(ctx, *, query: str):
     
     # Ejecutamos las operaciones pesadas en un hilo separado
     if is_youtube_url:
-        # Si es un enlace de YouTube, obtenemos la info directamente
         url, title, thumb, dur, vid_url, uploader = await run_in_executor(get_youtube_info, query, True)
         if not url:
             await loading_msg.delete()
             return await ctx.send("No pude obtener la información del video de YouTube. Intenta con otro enlace. 🎵")
         display_query = title
-        # Intentamos buscar en Spotify para obtener la carátula
         track_name, album_image, dur_spotify = await run_in_executor(search_spotify, title)
         if track_name:
             dur = dur_spotify if dur_spotify else dur
     elif "spotify.com/track" in query:
-        # Si es un enlace de Spotify, obtenemos info directamente
         track_name, album_image, dur = await run_in_executor(get_spotify_track_info, query)
         if not track_name:
             await loading_msg.delete()
             return await ctx.send("No pude obtener la información de Spotify. Intenta con otra canción. 🎵")
         display_query = track_name
     else:
-        # Si es una búsqueda por nombre, buscamos en Spotify
         track_name, album_image, dur = await run_in_executor(search_spotify, query)
         if track_name:
             display_query = track_name
         else:
-            # Si no encontramos en Spotify, buscamos en YouTube
             url, title, thumb, dur, vid_url, uploader = await run_in_executor(get_youtube_info, query, False)
             if not url:
                 await loading_msg.delete()
                 return await ctx.send("No encontré esa canción en YouTube. Prueba con otra. 🔍")
             display_query = title
 
-    # Almacenamos el enlace original si es un enlace de YouTube, o el query si no lo es
     queue.append((original_url or display_query, display_query, ctx.author, album_image, dur, is_youtube_url))
 
-    # Formatear el mensaje de "Añadido a la cola"
     duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
     embed = discord.Embed(color=discord.Color.blue())
     embed.description = (
@@ -228,13 +225,11 @@ async def play_next(ctx):
     if not queue:
         return
 
-    # Extraemos el enlace/query, el título para mostrar, y el resto de los datos
     url_or_query, display_query, requester, album_image, dur, is_youtube_url = queue.pop(0)
     vc = ctx.voice_client
     if not vc:
         return
 
-    # Buscamos en YouTube para reproducir
     url, title, thumb, dur_yt, vid_url, uploader = await run_in_executor(get_youtube_info, url_or_query, is_youtube_url)
     if not url:
         await ctx.send("No pude encontrar el video en YouTube, pasando a la siguiente canción...")
@@ -244,10 +239,15 @@ async def play_next(ctx):
         await ctx.send("Formato no compatible (.m3u8), pasando a la siguiente canción...")
         return await play_next(ctx)
 
-    # Usamos la duración de Spotify si está disponible, si no, la de YouTube
     dur = dur if dur else dur_yt
 
     try:
+        # Verificamos el estado del voice_client antes de reproducir
+        if vc.is_playing() or vc.is_paused():
+            print("Voice client todavía está reproduciendo o pausado. Deteniendo antes de continuar...")
+            vc.stop()
+            await asyncio.sleep(0.5)  # Breve espera para asegurar que FFmpeg termine
+
         source = discord.FFmpegPCMAudio(
             url,
             executable='ffmpeg',
@@ -285,6 +285,9 @@ async def play_next(ctx):
 async def leave(ctx):
     if ctx.voice_client:
         queue.clear()
+        if ctx.voice_client.is_playing() or ctx.voice_client.is_paused():
+            ctx.voice_client.stop()
+            await asyncio.sleep(0.5)
         await ctx.voice_client.disconnect()
         await ctx.send("👋 Me salí del canal de voz. ¡Nos vemos!")
     else:
