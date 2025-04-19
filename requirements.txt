@@ -3,6 +3,4 @@ spotipy
 yt-dlp
 ffmpeg
 python-dotenv
-PyNaCl
-python-dotenv
 openai
