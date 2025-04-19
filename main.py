@@ -17,7 +17,7 @@ intents.voice_states = True
 
 bot = commands.Bot(command_prefix='-', intents=intents)
 
-# Spotify setup
+# Configuración de Spotify
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 sp = Spotify(auth_manager=SpotifyClientCredentials(
@@ -25,7 +25,7 @@ sp = Spotify(auth_manager=SpotifyClientCredentials(
     client_secret=SPOTIFY_CLIENT_SECRET
 ))
 
-# OpenAI setup
+# Configuración de OpenAI
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -85,21 +85,21 @@ class MusicControls(discord.ui.View):
     async def pause_resume(self, interaction, button):
         vc = self.ctx.voice_client
         if not vc:
-            return await interaction.response.send_message("No estoy conectado.", ephemeral=True)
+            return await interaction.response.send_message("No estoy conectado a ningún canal de voz.", ephemeral=True)
         if vc.is_playing():
             vc.pause()
-            await interaction.response.send_message("Pausado.", ephemeral=True)
+            await interaction.response.send_message("Pausado. ⏸️", ephemeral=True)
         elif vc.is_paused():
             vc.resume()
-            await interaction.response.send_message("Reanudado.", ephemeral=True)
+            await interaction.response.send_message("Reanudado. ▶️", ephemeral=True)
 
     @discord.ui.button(label="", emoji="⏭️", style=discord.ButtonStyle.secondary)
     async def next_song(self, interaction, button):
         vc = self.ctx.voice_client
         if not vc:
-            return await interaction.response.send_message("No conectado.", ephemeral=True)
+            return await interaction.response.send_message("No estoy conectado a ningún canal de voz.", ephemeral=True)
         if not queue:
-            return await interaction.response.send_message("Cola vacía.", ephemeral=True)
+            return await interaction.response.send_message("La cola está vacía.", ephemeral=True)
         await interaction.response.defer()
         vc.stop()
         await play_next(self.ctx)
@@ -108,29 +108,41 @@ class MusicControls(discord.ui.View):
     async def stop(self, interaction, button):
         vc = self.ctx.voice_client
         if not vc:
-            return await interaction.response.send_message("No conectado.", ephemeral=True)
+            return await interaction.response.send_message("No estoy conectado a ningún canal de voz.", ephemeral=True)
         queue.clear()
         vc.stop()
         await asyncio.sleep(0.5)
         await vc.disconnect()
-        await interaction.response.send_message("Detenido y desconectado.", ephemeral=True)
+        await interaction.response.send_message("Reproducción detenida y desconectado. 🛑", ephemeral=True)
         self.clear_items()
 
 @bot.command()
 async def play(ctx, *, query: str):
     if ctx.author.voice is None:
-        return await ctx.send("Debes estar en un canal de voz.")
+        return await ctx.send("Debes estar en un canal de voz para usar este comando. 🎙️")
 
     vc = ctx.voice_client or await ctx.author.voice.channel.connect()
     if "spotify.com/track" in query:
         query = get_spotify_track_name(query)
         if not query:
-            return await ctx.send("No se pudo obtener información de Spotify.")
+            return await ctx.send("No pude obtener la información de Spotify. Intenta con otra canción. 🎵")
+
+    # Obtener información de la canción para mostrar la duración
+    url, title, thumb, dur, vid_url, uploader = get_youtube_url(query)
+    if not url:
+        return await ctx.send("No encontré esa canción en YouTube. Prueba con otra. 🔍")
 
     queue.append((query, ctx.author))
 
-    añadido = discord.Embed(description=f"🎵 Añadido: **{query}**", color=discord.Color.green())
-    await ctx.send(embed=añadido)
+    # Formatear el mensaje de "Añadido a la cola"
+    duration_str = f"{dur // 60:02d}:{dur % 60:02d}" if dur else "Desconocida"
+    embed = discord.Embed(color=discord.Color.red())
+    embed.description = (
+        "Añadido a la Cola 🩸\n"
+        f"{title.split(' (')[0].strip()} • [{duration_str}]\n"
+        f"**Canciones en cola:** {len(queue)}"
+    )
+    await ctx.send(embed=embed)
 
     if not vc.is_playing() and not vc.is_paused():
         await play_next(ctx)
@@ -160,11 +172,14 @@ async def play_next(ctx):
     vc.play(source, after=after)
 
     embed = discord.Embed(color=discord.Color.purple())
-    embed.description = f":cd:  **{title.split(' (')[0].strip()}**"
+    embed.description = (
+        "Reproduciendo 🎶\n"
+        f":cd: **{title.split(' (')[0].strip()}** • [{dur // 60:02d}:{dur % 60:02d}]"
+    )
     embed.set_thumbnail(url=thumb)
     embed.add_field(
         name="\u200b",
-        value=f"**Duración:** [{dur // 60}:{dur % 60:02d}]\n**Solicitado por:** {requester.mention}",
+        value=f"**Solicitado por:** {requester.mention}\n**Canciones en cola:** {len(queue)}",
         inline=False
     )
 
@@ -175,26 +190,28 @@ async def leave(ctx):
     if ctx.voice_client:
         queue.clear()
         await ctx.voice_client.disconnect()
-        await ctx.send("👋 Me salí del canal de voz.")
+        await ctx.send("👋 Me salí del canal de voz. ¡Nos vemos!")
+    else:
+        await ctx.send("No estoy en ningún canal de voz. ¿Qué quieres que haga? 🤔")
 
 @bot.command()
 async def comandos(ctx):
     desc = (
         "**Comandos disponibles:**\n"
-        "-play <nombre>: Busca y reproduce música de YouTube o Spotify.\n"
-        "-leave: Desconecta al bot.\n"
-        "-comandos: Muestra este mensaje.\n"
-        "-huevin <mensaje>: Habla con Huevin (solo canal autorizado y rol @Friends)."
+        "-play <nombre>: Busca y reproduce música de YouTube o Spotify. 🎵\n"
+        "-leave: Desconecta al bot del canal de voz. 👋\n"
+        "-comandos: Muestra esta lista de comandos. 📜\n"
+        "-huevin <mensaje>: Habla con Huevín (solo en el canal autorizado y con el rol @Friends). 😈"
     )
     await ctx.send(embed=discord.Embed(description=desc, color=discord.Color.teal()))
 
 @bot.command()
 async def huevin(ctx, *, message: str):
     if ctx.channel.id != ALLOWED_CHANNEL_ID:
-        return await ctx.send(f"Este comando solo está permitido en <#{ALLOWED_CHANNEL_ID}>.")
+        return await ctx.send(f"Este comando solo se puede usar en <#{ALLOWED_CHANNEL_ID}>. ¡Muévete pa’llá! 🚫")
 
     if not any(role.id == ALLOWED_ROLE_ID for role in ctx.author.roles):
-        return await ctx.send("No tienes permiso para usar este comando, necesitas el rol @Friends.")
+        return await ctx.send("No tienes permiso para usar este comando. Necesitas el rol @Friends. 🔒")
 
     user_id = ctx.author.id
     conversation = user_conversations.get(user_id, {'history': []})['history']
@@ -216,7 +233,7 @@ async def huevin(ctx, *, message: str):
 
 @bot.event
 async def on_ready():
-    activity = discord.Game(name="insultando inútiles")
+    activity = discord.Game(name="insultando pendejos")
     await bot.change_presence(activity=activity)
     print(f"Bot conectado como {bot.user}")
 
