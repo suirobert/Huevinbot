@@ -158,6 +158,7 @@ async def play(ctx, *, query: str):
     album_image = None
     dur = 0
     is_youtube_url = "youtube.com/watch?v=" in query or "youtu.be/" in query
+    original_url = query if is_youtube_url else None
     
     if is_youtube_url:
         # Si es un enlace de YouTube, obtenemos la info directamente
@@ -165,9 +166,9 @@ async def play(ctx, *, query: str):
         if not url:
             await loading_msg.delete()
             return await ctx.send("No pude obtener la información del video de YouTube. Intenta con otro enlace. 🎵")
-        query = title  # Usamos el título del video como query
+        display_query = title  # Usamos el título para mostrar en el embed
         # Intentamos buscar en Spotify para obtener la carátula
-        track_name, album_image, dur_spotify = search_spotify(query)
+        track_name, album_image, dur_spotify = search_spotify(title)
         if track_name:
             dur = dur_spotify if dur_spotify else dur
     elif "spotify.com/track" in query:
@@ -176,27 +177,29 @@ async def play(ctx, *, query: str):
         if not track_name:
             await loading_msg.delete()
             return await ctx.send("No pude obtener la información de Spotify. Intenta con otra canción. 🎵")
-        query = track_name
+        display_query = track_name
     else:
         # Si es una búsqueda por nombre, buscamos en Spotify
         track_name, album_image, dur = search_spotify(query)
         if track_name:
-            query = track_name
+            display_query = track_name
         else:
             # Si no encontramos en Spotify, buscamos en YouTube
             url, title, thumb, dur, vid_url, uploader = get_youtube_info(query, is_url=False)
             if not url:
                 await loading_msg.delete()
                 return await ctx.send("No encontré esa canción en YouTube. Prueba con otra. 🔍")
+            display_query = title
 
-    queue.append((query, ctx.author, album_image, dur, is_youtube_url))
+    # Almacenamos el enlace original si es un enlace de YouTube, o el query si no lo es
+    queue.append((original_url or display_query, display_query, ctx.author, album_image, dur, is_youtube_url))
 
-    # Formatear el mensaje de "Añadido a la cola"
+    # Formatear el mensajes de "Añadido a la cola"
     duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
     embed = discord.Embed(color=discord.Color.blue())
     embed.description = (
         f"**Añadido a la Cola** 🩸\n"
-        f"**{query.split(' (')[0].strip()}** • {duration_str}\n"
+        f"**{display_query.split(' (')[0].strip()}** • {duration_str}\n"
         f"**Queue Length:** {len(queue)}"
     )
     if album_image:
@@ -211,13 +214,14 @@ async def play_next(ctx):
     if not queue:
         return
 
-    query, requester, album_image, dur, is_youtube_url = queue.pop(0)
+    # Extraemos el enlace/query, el título para mostrar, y el resto de los datos
+    url_or_query, display_query, requester, album_image, dur, is_youtube_url = queue.pop(0)
     vc = ctx.voice_client
     if not vc:
         return
 
     # Buscamos en YouTube para reproducir
-    url, title, thumb, dur_yt, vid_url, uploader = get_youtube_info(query, is_url=is_youtube_url)
+    url, title, thumb, dur_yt, vid_url, uploader = get_youtube_info(url_or_query, is_url=is_youtube_url)
     if not url:
         await ctx.send("No pude encontrar el video en YouTube, pasando a la siguiente canción...")
         return await play_next(ctx)
@@ -247,7 +251,7 @@ async def play_next(ctx):
         duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
         embed.description = (
             f"**Reproduciendo** 🎶\n"
-            f"**{title.split(' (')[0].strip()}** • {duration_str}\n"
+            f"**{display_query.split(' (')[0].strip()}** • {duration_str}\n"
             f"**Solicitado por:** {requester.mention}\n"
             f"**Canciones en cola:** {len(queue)}"
         )
