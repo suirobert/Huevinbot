@@ -79,10 +79,15 @@ class MusicControls(discord.ui.View):
 
     @discord.ui.button(label="", emoji="🔀", style=discord.ButtonStyle.grey)
     async def shuffle(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
         global queue, audio_ready_queue
+        await interaction.response.defer(ephemeral=True)
+        vc = self.ctx.voice_client
+        if not vc:
+            return await interaction.followup.send("No estoy conectado a ningún canal de voz. 🎙️", ephemeral=True)
         if not queue and not audio_ready_queue:
             return await interaction.followup.send("La cola está vacía. ¡Añade algunas canciones primero! 🎵", ephemeral=True)
+        
+        # Mezclar las colas sin interrumpir la canción actual
         combined_queue = audio_ready_queue + [(url_or_query, display_query, requester, album_image, dur, False) for url_or_query, display_query, requester, album_image, dur, _ in queue]
         random.shuffle(combined_queue)
         audio_ready_queue = []
@@ -92,8 +97,10 @@ class MusicControls(discord.ui.View):
                 audio_ready_queue.append(item)
             else:  # Es una entrada de queue
                 queue.append((item[0], item[1], item[2], item[3], item[4], False))
-        await interaction.followup.send("🔀 ¡Cola mezclada! Las canciones ahora se reproducirán en orden aleatorio.", ephemeral=True)
-        # Procesar las próximas canciones
+        
+        await interaction.followup.send("🔀 ¡Cola mezclada! Las próximas canciones se reproducirán en orden aleatorio.", ephemeral=True)
+        
+        # Procesar las próximas canciones (sin interrumpir la reproducción actual)
         asyncio.create_task(process_next_songs(self.ctx))
 
     @discord.ui.button(label="", emoji="📜", style=discord.ButtonStyle.grey)
@@ -288,8 +295,13 @@ def setup_music_commands(bot):
     @bot.command()
     async def shuffle(ctx):
         global queue, audio_ready_queue
+        vc = ctx.voice_client
+        if not vc:
+            return await ctx.send("No estoy conectado a ningún canal de voz. 🎙️")
         if not queue and not audio_ready_queue:
             return await ctx.send("La cola está vacía. ¡Añade algunas canciones primero! 🎵")
+        
+        # Mezclar las colas sin interrumpir la canción actual
         combined_queue = audio_ready_queue + [(url_or_query, display_query, requester, album_image, dur, False) for url_or_query, display_query, requester, album_image, dur, _ in queue]
         random.shuffle(combined_queue)
         audio_ready_queue = []
@@ -299,9 +311,31 @@ def setup_music_commands(bot):
                 audio_ready_queue.append(item)
             else:  # Es una entrada de queue
                 queue.append((item[0], item[1], item[2], item[3], item[4], False))
-        await ctx.send("🔀 ¡Cola mezclada! Las canciones ahora se reproducirán en orden aleatorio.")
-        # Procesar las próximas canciones
+        
+        await ctx.send("🔀 ¡Cola mezclada! Las próximas canciones se reproducirán en orden aleatorio.")
+        
+        # Procesar las próximas canciones (sin interrumpir la reproducción actual)
         asyncio.create_task(process_next_songs(ctx))
+
+    @bot.command()
+    async def queue(ctx):
+        if not audio_ready_queue and not queue:
+            return await ctx.send("La cola está vacía. ¡Añade algunas canciones! 🎵")
+        
+        embed = discord.Embed(title="📜 Cola de Canciones", color=discord.Color.blue())
+        description = ""
+        combined_queue = audio_ready_queue + [(url_or_query, display_query, requester, album_image, dur, None) for url_or_query, display_query, requester, album_image, dur, _ in queue]
+        for i, item in enumerate(combined_queue[:10], 1):
+            if len(item) == 6 and item[5] is not None:  # Es una entrada de audio_ready_queue
+                _, display_query, requester, _, dur, _ = item
+            else:  # Es una entrada de queue
+                _, display_query, requester, _, dur, _ = item
+            duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
+            description += f"**{i}.** {display_query.split(' (')[0].strip()} • {duration_str} (por {requester.mention})\n"
+        if len(combined_queue) > 10:
+            description += f"\nY {len(combined_queue) - 10} más..."
+        embed.description = description
+        await ctx.send(embed=embed)
 
     @bot.command()
     async def leave(ctx):
@@ -337,6 +371,7 @@ def setup_music_commands(bot):
             "**Comandos disponibles:**\n"
             "-play <nombre o enlace>: Busca y reproduce música de YouTube o Spotify (soporta playlists). 🎵\n"
             "-shuffle: Mezcla la cola de canciones para reproducirlas en orden aleatorio. 🔀\n"
+            "-queue: Muestra la cola de canciones. 📜\n"
             "-leave: Desconecta al bot del canal de voz. 👋\n"
             "-comandos: Muestra esta lista de comandos. 📜\n"
             "-huevin <mensaje>: Habla con Huevín (solo en el canal autorizado y con el rol @Friends). 😈"
