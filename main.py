@@ -77,25 +77,30 @@ def get_spotify_track_info(url):
         print(f"Error al obtener info de Spotify: {e}")
         return None, None, 0
 
-def get_youtube_url(search_query):
+def get_youtube_info(url_or_query, is_url=False):
     ydl_opts = {
-        'format': 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio',  # Mejorar selección de formato
+        'format': 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio',
         'quiet': True,
         'noplaylist': True,
-        'default_search': 'ytsearch',
+        'default_search': 'ytsearch' if not is_url else None,
         'extract_flat': False,
         'no_warnings': True,
-        'ignoreerrors': True,  # Ignorar errores menores
+        'ignoreerrors': True,
     }
     try:
         with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch:{search_query}", download=False)
-            if 'entries' in info and info['entries']:
-                entry = info['entries'][0]
-                return entry.get('url'), entry.get('title'), entry.get('thumbnail'), entry.get('duration', 0), f"https://www.youtube.com/watch?v={entry.get('id')}", entry.get('uploader', 'Desconocido')
+            if is_url:
+                info = ydl.extract_info(url_or_query, download=False)
+            else:
+                info = ydl.extract_info(f"ytsearch:{url_or_query}", download=False)
+                if 'entries' in info and info['entries']:
+                    info = info['entries'][0]
+            if not info:
+                return None, None, None, 0, None, None
+            return info.get('url'), info.get('title'), info.get('thumbnail'), info.get('duration', 0), f"https://www.youtube.com/watch?v={info.get('id')}", info.get('uploader', 'Desconocido')
     except Exception as e:
         print(f"Error en yt_dlp: {e}")
-    return None, None, None, 0, None, None
+        return None, None, None, 0, None, None
 
 class MusicControls(discord.ui.View):
     def __init__(self, bot, ctx):
@@ -105,7 +110,7 @@ class MusicControls(discord.ui.View):
 
     @discord.ui.button(label="", emoji="⏯️", style=discord.ButtonStyle.primary)
     async def pause_resume(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)  # Responder rápidamente
+        await interaction.response.defer(ephemeral=True)
         vc = self.ctx.voice_client
         if not vc:
             return await interaction.followup.send("No estoy conectado a ningún canal de voz.", ephemeral=True)
@@ -118,7 +123,7 @@ class MusicControls(discord.ui.View):
 
     @discord.ui.button(label="", emoji="⏭️", style=discord.ButtonStyle.secondary)
     async def next_song(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)  # Responder rápidamente
+        await interaction.response.defer(ephemeral=True)
         vc = self.ctx.voice_client
         if not vc:
             return await interaction.followup.send("No estoy conectado a ningún canal de voz.", ephemeral=True)
@@ -129,7 +134,7 @@ class MusicControls(discord.ui.View):
 
     @discord.ui.button(label="", emoji="⏹️", style=discord.ButtonStyle.danger)
     async def stop(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)  # Responder rápidamente
+        await interaction.response.defer(ephemeral=True)
         vc = self.ctx.voice_client
         if not vc:
             return await interaction.followup.send("No estoy conectado a ningún canal de voz.", ephemeral=True)
@@ -145,7 +150,6 @@ async def play(ctx, *, query: str):
     if ctx.author.voice is None:
         return await ctx.send("Debes estar en un canal de voz para usar este comando. 🎙️")
 
-    # Mensaje de "cargando" para reducir la percepción de demora
     loading_msg = await ctx.send("🔄 Buscando y cargando la canción, espera un momento...")
 
     vc = ctx.voice_client or await ctx.author.voice.channel.connect()
@@ -153,27 +157,39 @@ async def play(ctx, *, query: str):
     # Variables para la imagen y duración
     album_image = None
     dur = 0
+    is_youtube_url = "youtube.com/watch?v=" in query or "youtu.be/" in query
     
-    # Si es un enlace de Spotify, obtenemos info directamente
-    if "spotify.com/track" in query:
+    if is_youtube_url:
+        # Si es un enlace de YouTube, obtenemos la info directamente
+        url, title, thumb, dur, vid_url, uploader = get_youtube_info(query, is_url=True)
+        if not url:
+            await loading_msg.delete()
+            return await ctx.send("No pude obtener la información del video de YouTube. Intenta con otro enlace. 🎵")
+        query = title  # Usamos el título del video como query
+        # Intentamos buscar en Spotify para obtener la carátula
+        track_name, album_image, dur_spotify = search_spotify(query)
+        if track_name:
+            dur = dur_spotify if dur_spotify else dur
+    elif "spotify.com/track" in query:
+        # Si es un enlace de Spotify, obtenemos info directamente
         track_name, album_image, dur = get_spotify_track_info(query)
         if not track_name:
             await loading_msg.delete()
             return await ctx.send("No pude obtener la información de Spotify. Intenta con otra canción. 🎵")
         query = track_name
     else:
-        # Si no es un enlace, buscamos en Spotify por nombre
+        # Si es una búsqueda por nombre, buscamos en Spotify
         track_name, album_image, dur = search_spotify(query)
         if track_name:
             query = track_name
         else:
             # Si no encontramos en Spotify, buscamos en YouTube
-            url, title, thumb, dur, vid_url, uploader = get_youtube_url(query)
+            url, title, thumb, dur, vid_url, uploader = get_youtube_info(query, is_url=False)
             if not url:
                 await loading_msg.delete()
                 return await ctx.send("No encontré esa canción en YouTube. Prueba con otra. 🔍")
 
-    queue.append((query, ctx.author, album_image, dur))
+    queue.append((query, ctx.author, album_image, dur, is_youtube_url))
 
     # Formatear el mensaje de "Añadido a la cola"
     duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
@@ -195,13 +211,13 @@ async def play_next(ctx):
     if not queue:
         return
 
-    query, requester, album_image, dur = queue.pop(0)
+    query, requester, album_image, dur, is_youtube_url = queue.pop(0)
     vc = ctx.voice_client
     if not vc:
         return
 
     # Buscamos en YouTube para reproducir
-    url, title, thumb, dur_yt, vid_url, uploader = get_youtube_url(query)
+    url, title, thumb, dur_yt, vid_url, uploader = get_youtube_info(query, is_url=is_youtube_url)
     if not url:
         await ctx.send("No pude encontrar el video en YouTube, pasando a la siguiente canción...")
         return await play_next(ctx)
@@ -218,7 +234,7 @@ async def play_next(ctx):
             url,
             executable='ffmpeg',
             before_options='-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -loglevel quiet',
-            options='-vn -bufsize 64k'  # Reducir buffer para mejor estabilidad
+            options='-vn -bufsize 64k'
         )
         def after(e):
             if e:
@@ -235,7 +251,6 @@ async def play_next(ctx):
             f"**Solicitado por:** {requester.mention}\n"
             f"**Canciones en cola:** {len(queue)}"
         )
-        # Usamos la imagen de Spotify si está disponible, si no, la miniatura de YouTube
         if album_image:
             embed.set_thumbnail(url=album_image)
         else:
@@ -244,8 +259,8 @@ async def play_next(ctx):
         await ctx.send(embed=embed, view=MusicControls(bot, ctx))
 
     except Exception as e:
-        print(f"Error al reproducir: {e}")
-        await ctx.send("Hubo un error al reproducir la canción, pasando a la siguiente...")
+        print(f"Error detallado al reproducir: {str(e)}")
+        await ctx.send(f"Hubo un error al reproducir la canción: {str(e)}. Pasando a la siguiente...")
         await play_next(ctx)
 
 @bot.command()
