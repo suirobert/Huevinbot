@@ -68,12 +68,17 @@ def get_youtube_url(search_query):
         print(f"Error en yt_dlp: {e}")
     return None, None, None, 0, None, None
 
-def get_spotify_track_name(url):
+def get_spotify_track_info(url):
     try:
         track_info = sp.track(url)
-        return f"{track_info['name']} {track_info['artists'][0]['name']}"
-    except:
-        return None
+        track_name = f"{track_info['name']} {track_info['artists'][0]['name']}"
+        album_image = track_info['album']['images'][0]['url'] if track_info['album']['images'] else None
+        duration_ms = track_info['duration_ms']
+        duration_sec = duration_ms // 1000
+        return track_name, album_image, duration_sec
+    except Exception as e:
+        print(f"Error al obtener info de Spotify: {e}")
+        return None, None, 0
 
 class MusicControls(discord.ui.View):
     def __init__(self, bot, ctx):
@@ -122,26 +127,35 @@ async def play(ctx, *, query: str):
         return await ctx.send("Debes estar en un canal de voz para usar este comando. 🎙️")
 
     vc = ctx.voice_client or await ctx.author.voice.channel.connect()
+    
+    # Variables para la imagen y duración
+    album_image = None
+    dur = 0
+    
+    # Si es un enlace de Spotify, obtenemos info de Spotify
     if "spotify.com/track" in query:
-        query = get_spotify_track_name(query)
-        if not query:
+        track_name, album_image, dur = get_spotify_track_info(query)
+        if not track_name:
             return await ctx.send("No pude obtener la información de Spotify. Intenta con otra canción. 🎵")
-
-    # Obtener información de la canción para mostrar la duración
-    url, title, thumb, dur, vid_url, uploader = get_youtube_url(query)
-    if not url:
-        return await ctx.send("No encontré esa canción en YouTube. Prueba con otra. 🔍")
+        query = track_name
+    else:
+        # Si no es Spotify, buscamos en YouTube
+        url, title, thumb, dur, vid_url, uploader = get_youtube_url(query)
+        if not url:
+            return await ctx.send("No encontré esa canción en YouTube. Prueba con otra. 🔍")
 
     queue.append((query, ctx.author))
 
     # Formatear el mensaje de "Añadido a la cola"
-    duration_str = f"{dur // 60:02d}:{dur % 60:02d}" if dur else "Desconocida"
-    embed = discord.Embed(color=discord.Color.red())
+    duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
+    embed = discord.Embed(color=discord.Color.blue())
     embed.description = (
-        "Añadido a la Cola 🩸\n"
-        f"{title.split(' (')[0].strip()} • [{duration_str}]\n"
-        f"**Canciones en cola:** {len(queue)}"
+        f"**Añadido a la Cola** 🩸\n"
+        f"**{query.split(' (')[0].strip()}** • {duration_str}\n"
+        f"**Queue Length:** {len(queue)}"
     )
+    if album_image:
+        embed.set_thumbnail(url=album_image)
     await ctx.send(embed=embed)
 
     if not vc.is_playing() and not vc.is_paused():
@@ -156,12 +170,26 @@ async def play_next(ctx):
     if not vc:
         return
 
-    url, title, thumb, dur, vid_url, uploader = get_youtube_url(query)
+    # Variables para la imagen y duración
+    album_image = None
+    dur = 0
+
+    # Si la query proviene de Spotify, obtenemos la imagen y duración
+    if "spotify.com/track" in query:
+        track_name, album_image, dur = get_spotify_track_info(query)
+        if track_name:
+            query = track_name
+
+    # Buscamos en YouTube para reproducir
+    url, title, thumb, dur_yt, vid_url, uploader = get_youtube_url(query)
     if not url:
         return await play_next(ctx)
 
     if url.endswith(".m3u8"):
         return await play_next(ctx)
+
+    # Usamos la duración de Spotify si está disponible, si no, la de YouTube
+    dur = dur if dur else dur_yt
 
     source = discord.FFmpegPCMAudio(url, executable='ffmpeg', before_options='-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', options='-vn')
     def after(e):
@@ -171,17 +199,19 @@ async def play_next(ctx):
 
     vc.play(source, after=after)
 
-    embed = discord.Embed(color=discord.Color.purple())
+    embed = discord.Embed(color=discord.Color.blue())
+    duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
     embed.description = (
-        "Reproduciendo 🎶\n"
-        f":cd: **{title.split(' (')[0].strip()}** • [{dur // 60:02d}:{dur % 60:02d}]"
+        f"**Reproduciendo** 🎶\n"
+        f"**{title.split(' (')[0].strip()}** • {duration_str}\n"
+        f"**Solicitado por:** {requester.mention}\n"
+        f"**Canciones en cola:** {len(queue)}"
     )
-    embed.set_thumbnail(url=thumb)
-    embed.add_field(
-        name="\u200b",
-        value=f"**Solicitado por:** {requester.mention}\n**Canciones en cola:** {len(queue)}",
-        inline=False
-    )
+    # Usamos la imagen de Spotify si está disponible, si no, la miniatura de YouTube
+    if album_image:
+        embed.set_thumbnail(url=album_image)
+    else:
+        embed.set_thumbnail(url=thumb)
 
     await ctx.send(embed=embed, view=MusicControls(bot, ctx))
 
