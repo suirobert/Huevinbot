@@ -2,7 +2,7 @@ import discord
 import asyncio
 import concurrent.futures
 import random
-from .utils import get_youtube_info, search_spotify, get_spotify_track_info, get_spotify_playlist_info
+from .utils import get_youtube_info, search_spotify, get_spotify_track_info, get_spotify_playlist_info, get_youtube_playlist_info
 
 # Colas y configuraciones
 queue = []  # Cola principal: almacena información básica de las canciones
@@ -239,7 +239,9 @@ def setup_music_commands(bot):
 
         vc = ctx.voice_client or await ctx.author.voice.channel.connect()
         
+        # Mejorar la detección de URLs de YouTube y playlists
         is_youtube_url = "youtube.com/watch?v=" in query or "youtu.be/" in query
+        is_youtube_playlist = "list=" in query or "youtube.com/playlist" in query
         is_spotify_track = "spotify.com/track" in query
         is_spotify_playlist = "spotify.com/playlist" in query
         original_url = query if is_youtube_url else None
@@ -276,7 +278,43 @@ def setup_music_commands(bot):
             embed = discord.Embed(color=discord.Color.blue())
             embed.description = (
                 f"**Añadidas {len(playlist_tracks)} canciones a la cola desde la playlist '{playlist_name}'** 🩸\n"
-                f"La primera canción comenzará pronto, el resto se está cargando en segundo plano..."
+            )
+            await loading_msg.delete()
+            msg = await ctx.send(embed=embed)
+            queue_messages.append(msg)
+
+        elif is_youtube_playlist:
+            playlist_tracks, playlist_name = await run_in_executor(get_youtube_playlist_info, query)
+            if not playlist_tracks:
+                await loading_msg.delete()
+                return await ctx.send("No pude obtener las canciones de la playlist de YouTube. Intenta con otra. 🎵")
+            
+            print(f"Añadiendo {len(playlist_tracks)} canciones a la cola desde YouTube...")
+            # Procesar solo la primera canción de inmediato para comenzar la reproducción más rápido
+            if playlist_tracks:
+                first_track = playlist_tracks[0]
+                track_name, album_image, dur = first_track
+                queue.append((track_name, track_name, ctx.author, album_image, dur, True))  # is_youtube_url=True
+                print(f"Primera canción añadida a queue: {track_name}")
+                # Procesar la primera canción de inmediato
+                await process_next_songs(ctx)
+            
+            # Añadir el resto de las canciones a la cola en segundo plano
+            async def add_remaining_tracks():
+                for track in playlist_tracks[1:]:
+                    track_name, album_image, dur = track
+                    queue.append((track_name, track_name, ctx.author, album_image, dur, True))  # is_youtube_url=True
+                    print(f"Canción añadida a queue: {track_name}")
+                # Procesar más canciones si es necesario
+                if not vc.is_playing() and not vc.is_paused():
+                    print("Procesando más canciones después de añadir el resto de la playlist de YouTube...")
+                    await process_next_songs(ctx)
+            
+            asyncio.create_task(add_remaining_tracks())
+            
+            embed = discord.Embed(color=discord.Color.blue())
+            embed.description = (
+                f"**Añadidas {len(playlist_tracks)} canciones a la cola desde la playlist '{playlist_name}'** 🩸\n"
             )
             await loading_msg.delete()
             msg = await ctx.send(embed=embed)
