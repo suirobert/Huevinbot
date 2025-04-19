@@ -191,7 +191,7 @@ async def play_next(ctx):
 
         embed = discord.Embed(color=discord.Color.blue())
         duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
-        embed τοdescription = (
+        embed.description = (
             f"**Reproduciendo Ahora**\n"
             f"{display_query.split(' (')[0].strip()} • {duration_str}\n"
             f"[{requester.mention}]"
