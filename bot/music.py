@@ -216,9 +216,9 @@ async def play_next(ctx):
         await play_next(ctx)
 
 def setup_music_commands(bot):
-    @bot.command()
+    @bot.command(name="play")
     async def play(ctx, *, query: str):
-        global queue_messages
+        global queue, queue_messages
         if ctx.author.voice is None:
             return await ctx.send("Debes estar en un canal de voz para usar este comando. 🎙️")
 
@@ -237,8 +237,10 @@ def setup_music_commands(bot):
                 await loading_msg.delete()
                 return await ctx.send("No pude obtener las canciones de la playlist. Intenta con otra. 🎵")
             
+            print(f"Añadiendo {len(playlist_tracks)} canciones a la cola...")
             for track_name, album_image, dur in playlist_tracks:
                 queue.append((track_name, track_name, ctx.author, album_image, dur, False))
+                print(f"Canción añadida a queue: {track_name}")
             
             embed = discord.Embed(color=discord.Color.blue())
             embed.description = (
@@ -276,6 +278,7 @@ def setup_music_commands(bot):
                     display_query = query
 
             queue.append((original_url or display_query, display_query, ctx.author, album_image, dur, is_youtube_url))
+            print(f"Canción añadida a queue: {display_query}")
 
             duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
             embed = discord.Embed(color=discord.Color.blue())
@@ -304,7 +307,7 @@ def setup_music_commands(bot):
         # Mezclar las colas sin interrumpir la canción actual
         combined_queue = audio_ready_queue + [(url_or_query, display_query, requester, album_image, dur, False) for url_or_query, display_query, requester, album_image, dur, _ in queue]
         random.shuffle(combined_queue)
-        audio_ready_queue = []
+씨        audio_ready_queue = []
         queue = []
         for item in combined_queue:
             if len(item) == 6 and item[5] is not False:  # Es una entrada de audio_ready_queue
