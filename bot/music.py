@@ -18,7 +18,7 @@ async def run_in_executor(func, *args):
     return await loop.run_in_executor(executor, func, *args)
 
 # Procesar las próximas canciones de la cola principal (máximo 3 a la vez)
-async def process_next_songs():
+async def process_next_songs(ctx):
     global queue, audio_ready_queue
     while len(audio_ready_queue) < 3 and queue:
         song_info = queue.pop(0)
@@ -27,8 +27,13 @@ async def process_next_songs():
         if url and not url.endswith(".m3u8"):
             dur = dur if dur else dur_yt
             audio_ready_queue.append((url, display_query, requester, album_image, dur, thumb))
+            print(f"Canción procesada y añadida a audio_ready_queue: {display_query}")
         else:
             print(f"No se pudo procesar {display_query}, se omite.")
+            await ctx.send(f"No pude encontrar '{display_query}' en YouTube. Se omite de la cola. 🎶")
+    if audio_ready_queue and not ctx.voice_client.is_playing() and not ctx.voice_client.is_paused():
+        print("Llamando a play_next desde process_next_songs")
+        await play_next(ctx)
 
 class MusicControls(discord.ui.View):
     def __init__(self, bot, ctx):
@@ -89,7 +94,7 @@ class MusicControls(discord.ui.View):
                 queue.append((item[0], item[1], item[2], item[3], item[4], False))
         await interaction.followup.send("🔀 ¡Cola mezclada! Las canciones ahora se reproducirán en orden aleatorio.", ephemeral=True)
         # Procesar las próximas canciones
-        asyncio.create_task(process_next_songs())
+        asyncio.create_task(process_next_songs(self.ctx))
 
     @discord.ui.button(label="", emoji="📜", style=discord.ButtonStyle.grey)
     async def show_queue(self, interaction: discord.Interaction, button):
@@ -147,14 +152,16 @@ async def play_next(ctx):
     global skip_flag, current_message, queue_messages
     # Procesar más canciones si es necesario
     if len(audio_ready_queue) < 3:
-        asyncio.create_task(process_next_songs())
+        asyncio.create_task(process_next_songs(ctx))
 
     if not audio_ready_queue:
+        print("No hay canciones en audio_ready_queue para reproducir.")
         return
 
     url, display_query, requester, album_image, dur, thumb = audio_ready_queue.pop(0)
     vc = ctx.voice_client
     if not vc:
+        print("No hay voice_client disponible.")
         return
 
     print(f"Intentando reproducir: {display_query}")
@@ -180,10 +187,11 @@ async def play_next(ctx):
             skip_flag = False
 
         vc.play(source, after=after)
+        print(f"Reproduciendo: {display_query}")
 
         embed = discord.Embed(color=discord.Color.blue())
         duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
-        embed.description = (
+        embed τοdescription = (
             f"**Reproduciendo Ahora**\n"
             f"{display_query.split(' (')[0].strip()} • {duration_str}\n"
             f"[{requester.mention}]"
@@ -217,7 +225,7 @@ def setup_music_commands(bot):
         original_url = query if is_youtube_url else None
         
         if is_spotify_playlist:
-            playlist_tracks = await run_in_executor(get_spotify_playlist_info, query)
+            playlist_tracks, playlist_name = await run_in_executor(get_spotify_playlist_info, query)
             if not playlist_tracks:
                 await loading_msg.delete()
                 return await ctx.send("No pude obtener las canciones de la playlist. Intenta con otra. 🎵")
@@ -227,11 +235,16 @@ def setup_music_commands(bot):
             
             embed = discord.Embed(color=discord.Color.blue())
             embed.description = (
-                f"**Añadidas {len(playlist_tracks)} canciones a la cola desde la playlist** 🩸\n"
+                f"**Añadidas {len(playlist_tracks)} canciones a la cola desde la playlist '{playlist_name}'** 🩸\n"
             )
             await loading_msg.delete()
             msg = await ctx.send(embed=embed)
             queue_messages.append(msg)
+
+            # Procesar las primeras canciones y comenzar la reproducción
+            if not vc.is_playing() and not vc.is_paused():
+                print("Procesando primeras canciones después de añadir playlist...")
+                await process_next_songs(ctx)
 
         else:
             album_image = None
@@ -267,8 +280,10 @@ def setup_music_commands(bot):
             msg = await ctx.send(embed=embed)
             queue_messages.append(msg)
 
-        if not vc.is_playing() and not vc.is_paused():
-            await play_next(ctx)
+            # Procesar las primeras canciones y comenzar la reproducción
+            if not vc.is_playing() and not vc.is_paused():
+                print("Procesando primera canción después de añadir una sola pista...")
+                await process_next_songs(ctx)
 
     @bot.command()
     async def shuffle(ctx):
@@ -286,7 +301,7 @@ def setup_music_commands(bot):
                 queue.append((item[0], item[1], item[2], item[3], item[4], False))
         await ctx.send("🔀 ¡Cola mezclada! Las canciones ahora se reproducirán en orden aleatorio.")
         # Procesar las próximas canciones
-        asyncio.create_task(process_next_songs())
+        asyncio.create_task(process_next_songs(ctx))
 
     @bot.command()
     async def leave(ctx):
