@@ -4,3 +4,4 @@ yt-dlp
 ffmpeg
 python-dotenv
 openai
+PyNaCl
