@@ -48,7 +48,7 @@ pip install discord.py spotipy yt-dlp python-dotenv openai
 
 1. **Clona el repositorio** 📂  
    ```bash
-   git clone https://github.com/tu-usuario/huevin-music-bot.git
+   git clone https://github.com/suirobert/huevin-music-bot.git
    cd huevin-music-bot
    ```
 
@@ -131,7 +131,7 @@ Este proyecto está bajo la **Licencia MIT**. Consulta el archivo [LICENSE](LICE
 
 ## 📧 **Contacto**
 
-Si tienes preguntas o problemas, abre un issue en el repositorio o contáctame en Discord: `tu-usuario#1234`.
+Si tienes preguntas o problemas, abre un issue en el repositorio o contáctame en Discord: `@inge robert`.
 
 ---
 
