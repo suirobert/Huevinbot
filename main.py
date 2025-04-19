@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 import asyncio
 from openai import OpenAI
 from datetime import datetime, timedelta
+import concurrent.futures
 
 load_dotenv()
 
@@ -29,12 +30,16 @@ sp = Spotify(auth_manager=SpotifyClientCredentials(
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
+# Cola y configuraciones
 queue = []
 ALLOWED_CHANNEL_ID = 1108528856408805417
 ALLOWED_ROLE_ID = 714948180617330728
 user_conversations = {}
 CONVERSATION_TIMEOUT = timedelta(minutes=30)
 MAX_HISTORY = 3
+
+# Ejecutor de hilos para tareas pesadas
+executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
 # FUNCIONES DE SOPORTE
 def manage_conversation(user_id, user_message, bot_response):
@@ -83,7 +88,7 @@ def get_youtube_info(url_or_query, is_url=False):
         'quiet': True,
         'noplaylist': True,
         'default_search': 'ytsearch' if not is_url else None,
-        'extract_flat': False,
+        'extract_flat': True,  # Reducimos la carga al no extraer info completa
         'no_warnings': True,
         'ignoreerrors': True,
     }
@@ -101,6 +106,11 @@ def get_youtube_info(url_or_query, is_url=False):
     except Exception as e:
         print(f"Error en yt_dlp: {e}")
         return None, None, None, 0, None, None
+
+# Función para ejecutar tareas pesadas en un hilo separado
+async def run_in_executor(func, *args):
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(executor, func, *args)
 
 class MusicControls(discord.ui.View):
     def __init__(self, bot, ctx):
@@ -160,32 +170,33 @@ async def play(ctx, *, query: str):
     is_youtube_url = "youtube.com/watch?v=" in query or "youtu.be/" in query
     original_url = query if is_youtube_url else None
     
+    # Ejecutamos las operaciones pesadas en un hilo separado
     if is_youtube_url:
         # Si es un enlace de YouTube, obtenemos la info directamente
-        url, title, thumb, dur, vid_url, uploader = get_youtube_info(query, is_url=True)
+        url, title, thumb, dur, vid_url, uploader = await run_in_executor(get_youtube_info, query, True)
         if not url:
             await loading_msg.delete()
             return await ctx.send("No pude obtener la información del video de YouTube. Intenta con otro enlace. 🎵")
-        display_query = title  # Usamos el título para mostrar en el embed
+        display_query = title
         # Intentamos buscar en Spotify para obtener la carátula
-        track_name, album_image, dur_spotify = search_spotify(title)
+        track_name, album_image, dur_spotify = await run_in_executor(search_spotify, title)
         if track_name:
             dur = dur_spotify if dur_spotify else dur
     elif "spotify.com/track" in query:
         # Si es un enlace de Spotify, obtenemos info directamente
-        track_name, album_image, dur = get_spotify_track_info(query)
+        track_name, album_image, dur = await run_in_executor(get_spotify_track_info, query)
         if not track_name:
             await loading_msg.delete()
             return await ctx.send("No pude obtener la información de Spotify. Intenta con otra canción. 🎵")
         display_query = track_name
     else:
         # Si es una búsqueda por nombre, buscamos en Spotify
-        track_name, album_image, dur = search_spotify(query)
+        track_name, album_image, dur = await run_in_executor(search_spotify, query)
         if track_name:
             display_query = track_name
         else:
             # Si no encontramos en Spotify, buscamos en YouTube
-            url, title, thumb, dur, vid_url, uploader = get_youtube_info(query, is_url=False)
+            url, title, thumb, dur, vid_url, uploader = await run_in_executor(get_youtube_info, query, False)
             if not url:
                 await loading_msg.delete()
                 return await ctx.send("No encontré esa canción en YouTube. Prueba con otra. 🔍")
@@ -194,7 +205,7 @@ async def play(ctx, *, query: str):
     # Almacenamos el enlace original si es un enlace de YouTube, o el query si no lo es
     queue.append((original_url or display_query, display_query, ctx.author, album_image, dur, is_youtube_url))
 
-    # Formatear el mensajes de "Añadido a la cola"
+    # Formatear el mensaje de "Añadido a la cola"
     duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
     embed = discord.Embed(color=discord.Color.blue())
     embed.description = (
@@ -221,7 +232,7 @@ async def play_next(ctx):
         return
 
     # Buscamos en YouTube para reproducir
-    url, title, thumb, dur_yt, vid_url, uploader = get_youtube_info(url_or_query, is_url=is_youtube_url)
+    url, title, thumb, dur_yt, vid_url, uploader = await run_in_executor(get_youtube_info, url_or_query, is_youtube_url)
     if not url:
         await ctx.send("No pude encontrar el video en YouTube, pasando a la siguiente canción...")
         return await play_next(ctx)
