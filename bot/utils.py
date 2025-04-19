@@ -50,7 +50,7 @@ def get_spotify_playlist_info(playlist_url):
                 album_image = track['album']['images'][0]['url'] if track['album']['images'] else None
                 duration_ms = track['duration_ms']
                 duration_sec = duration_ms // 1000
-                playlist_tracks.append((track_name, album_image, duration_sec))
+                playlist_tracks.append((track_name, track_name, album_image, duration_sec))  # Añadimos track_url igual a track_name
         return playlist_tracks, playlist_name  # Devolver tanto las canciones como el nombre
     except Exception as e:
         print(f"Error al obtener info de la playlist de Spotify: {e}")
@@ -87,7 +87,7 @@ def get_youtube_playlist_info(playlist_url):
     """
     Obtiene la información de una playlist de YouTube.
     Retorna: (tracks, playlist_name)
-    tracks: Lista de tuplas (track_name, album_image, duration)
+    tracks: Lista de tuplas (track_url, track_name, album_image, duration)
     playlist_name: Nombre de la playlist
     """
     # Extraer el ID de la playlist de la URL
@@ -136,9 +136,9 @@ def get_youtube_playlist_info(playlist_url):
                 album_image = entry.get('thumbnail', None)  # Usar la miniatura como imagen del álbum
                 video_id = entry.get('id', None)
                 if video_id:
-                    # Construir la URL del video para usarla como track_name
-                    video_url = f"https://www.youtube.com/watch?v={video_id}"
-                    tracks.append((video_url, album_image, duration))
+                    # Construir la URL del video
+                    track_url = f"https://www.youtube.com/watch?v={video_id}"
+                    tracks.append((track_url, track_name, album_image, duration))
                     print(f"Video añadido: {track_name}, duración: {duration} segundos")
                 else:
                     print(f"No se pudo obtener el ID del video para: {track_name}, omitiendo...")
