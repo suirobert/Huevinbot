@@ -28,13 +28,32 @@ def get_spotify_track_info(url):
     try:
         track_info = sp.track(url)
         track_name = f"{track_info['name']} {track_info['artists'][0]['name']}"
-        album_image = track_info['album']['images'][0]['url'] if track_info['album']['images'] else None
+        album_image = track['album']['images'][0]['url'] if track['album']['images'] else None
         duration_ms = track_info['duration_ms']
         duration_sec = duration_ms // 1000
         return track_name, album_image, duration_sec
     except Exception as e:
         print(f"Error al obtener info de Spotify: {e}")
         return None, None, 0
+
+def get_spotify_playlist_info(playlist_url):
+    try:
+        playlist_id = playlist_url.split("playlist/")[1].split("?")[0]
+        playlist_info = sp.playlist(playlist_id)
+        tracks = playlist_info['tracks']['items']
+        playlist_tracks = []
+        for item in tracks:
+            track = item['track']
+            if track:
+                track_name = f"{track['name']} {track['artists'][0]['name']}"
+                album_image = track['album']['images'][0]['url'] if track['album']['images'] else None
+                duration_ms = track['duration_ms']
+                duration_sec = duration_ms // 1000
+                playlist_tracks.append((track_name, album_image, duration_sec))
+        return playlist_tracks
+    except Exception as e:
+        print(f"Error al obtener info de la playlist de Spotify: {e}")
+        return []
 
 def get_youtube_info(url_or_query, is_url=False):
     ydl_opts = {
