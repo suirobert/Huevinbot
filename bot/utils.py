@@ -27,8 +27,8 @@ def search_spotify(query):
 def get_spotify_track_info(url):
     try:
         track_info = sp.track(url)
-        track_name = f"{track_info['name']} {track['artists'][0]['name']}"
-        album_image = track['album']['images'][0]['url'] if track['album']['images'] else None
+        track_name = f"{track_info['name']} {track_info['artists'][0]['name']}"
+        album_image = track_info['album']['images'][0]['url'] if track_info['album']['images'] else None
         duration_ms = track_info['duration_ms']
         duration_sec = duration_ms // 1000
         return track_name, album_image, duration_sec
@@ -82,3 +82,37 @@ def get_youtube_info(url_or_query, is_url=False):
     except Exception as e:
         print(f"Error en yt_dlp: {str(e)}")
         return None, None, None, 0, None, None
+
+def get_youtube_playlist_info(playlist_url):
+    """
+    Obtiene la información de una playlist de YouTube.
+    Retorna: (tracks, playlist_name)
+    tracks: Lista de tuplas (track_name, album_image, duration)
+    playlist_name: Nombre de la playlist
+    """
+    ydl_opts = {
+        'extract_flat': True,  # Solo extraer metadata, sin descargar
+        'quiet': True,
+        'no_warnings': True,
+        'ignoreerrors': True,
+    }
+    try:
+        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(playlist_url, download=False)
+            if not info or 'entries' not in info:
+                print("No se encontraron videos en la playlist de YouTube.")
+                return [], "Desconocida"
+            
+            playlist_name = info.get('title', 'Desconocida')
+            tracks = []
+            for entry in info['entries']:
+                if not entry:
+                    continue
+                track_name = entry.get('title', 'Desconocido')
+                duration = int(entry.get('duration', 0))  # Duración en segundos
+                album_image = entry.get('thumbnail', None)  # Usar la miniatura como imagen del álbum
+                tracks.append((track_name, album_image, duration))
+            return tracks, playlist_name
+    except Exception as e:
+        print(f"Error al obtener la playlist de YouTube: {str(e)}")
+        return [], "Desconocida"
