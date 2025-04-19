@@ -50,23 +50,20 @@ def manage_conversation(user_id, user_message, bot_response):
     for uid in to_remove:
         del user_conversations[uid]
 
-def get_youtube_url(search_query):
-    ydl_opts = {
-        'format': 'bestaudio[ext=webm]',
-        'quiet': True,
-        'noplaylist': True,
-        'default_search': 'ytsearch',
-        'extract_flat': False,
-    }
+def search_spotify(query):
     try:
-        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch:{search_query}", download=False)
-            if 'entries' in info and info['entries']:
-                entry = info['entries'][0]
-                return entry.get('url'), entry.get('title'), entry.get('thumbnail'), entry.get('duration', 0), f"https://www.youtube.com/watch?v={entry.get('id')}", entry.get('uploader', 'Desconocido')
+        results = sp.search(q=query, type='track', limit=1)
+        if results['tracks']['items']:
+            track = results['tracks']['items'][0]
+            track_name = f"{track['name']} {track['artists'][0]['name']}"
+            album_image = track['album']['images'][0]['url'] if track['album']['images'] else None
+            duration_ms = track['duration_ms']
+            duration_sec = duration_ms // 1000
+            return track_name, album_image, duration_sec
+        return None, None, 0
     except Exception as e:
-        print(f"Error en yt_dlp: {e}")
-    return None, None, None, 0, None, None
+        print(f"Error al buscar en Spotify: {e}")
+        return None, None, 0
 
 def get_spotify_track_info(url):
     try:
@@ -80,6 +77,26 @@ def get_spotify_track_info(url):
         print(f"Error al obtener info de Spotify: {e}")
         return None, None, 0
 
+def get_youtube_url(search_query):
+    ydl_opts = {
+        'format': 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio',  # Mejorar selección de formato
+        'quiet': True,
+        'noplaylist': True,
+        'default_search': 'ytsearch',
+        'extract_flat': False,
+        'no_warnings': True,
+        'ignoreerrors': True,  # Ignorar errores menores
+    }
+    try:
+        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"ytsearch:{search_query}", download=False)
+            if 'entries' in info and info['entries']:
+                entry = info['entries'][0]
+                return entry.get('url'), entry.get('title'), entry.get('thumbnail'), entry.get('duration', 0), f"https://www.youtube.com/watch?v={entry.get('id')}", entry.get('uploader', 'Desconocido')
+    except Exception as e:
+        print(f"Error en yt_dlp: {e}")
+    return None, None, None, 0, None, None
+
 class MusicControls(discord.ui.View):
     def __init__(self, bot, ctx):
         super().__init__(timeout=None)
@@ -87,38 +104,40 @@ class MusicControls(discord.ui.View):
         self.ctx = ctx
 
     @discord.ui.button(label="", emoji="⏯️", style=discord.ButtonStyle.primary)
-    async def pause_resume(self, interaction, button):
+    async def pause_resume(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)  # Responder rápidamente
         vc = self.ctx.voice_client
         if not vc:
-            return await interaction.response.send_message("No estoy conectado a ningún canal de voz.", ephemeral=True)
+            return await interaction.followup.send("No estoy conectado a ningún canal de voz.", ephemeral=True)
         if vc.is_playing():
             vc.pause()
-            await interaction.response.send_message("Pausado. ⏸️", ephemeral=True)
+            await interaction.followup.send("Pausado. ⏸️", ephemeral=True)
         elif vc.is_paused():
             vc.resume()
-            await interaction.response.send_message("Reanudado. ▶️", ephemeral=True)
+            await interaction.followup.send("Reanudado. ▶️", ephemeral=True)
 
     @discord.ui.button(label="", emoji="⏭️", style=discord.ButtonStyle.secondary)
-    async def next_song(self, interaction, button):
+    async def next_song(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)  # Responder rápidamente
         vc = self.ctx.voice_client
         if not vc:
-            return await interaction.response.send_message("No estoy conectado a ningún canal de voz.", ephemeral=True)
+            return await interaction.followup.send("No estoy conectado a ningún canal de voz.", ephemeral=True)
         if not queue:
-            return await interaction.response.send_message("La cola está vacía.", ephemeral=True)
-        await interaction.response.defer()
+            return await interaction.followup.send("La cola está vacía.", ephemeral=True)
         vc.stop()
         await play_next(self.ctx)
 
     @discord.ui.button(label="", emoji="⏹️", style=discord.ButtonStyle.danger)
-    async def stop(self, interaction, button):
+    async def stop(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)  # Responder rápidamente
         vc = self.ctx.voice_client
         if not vc:
-            return await interaction.response.send_message("No estoy conectado a ningún canal de voz.", ephemeral=True)
+            return await interaction.followup.send("No estoy conectado a ningún canal de voz.", ephemeral=True)
         queue.clear()
         vc.stop()
         await asyncio.sleep(0.5)
         await vc.disconnect()
-        await interaction.response.send_message("Reproducción detenida y desconectado. 🛑", ephemeral=True)
+        await interaction.followup.send("Reproducción detenida y desconectado. 🛑", ephemeral=True)
         self.clear_items()
 
 @bot.command()
@@ -126,25 +145,35 @@ async def play(ctx, *, query: str):
     if ctx.author.voice is None:
         return await ctx.send("Debes estar en un canal de voz para usar este comando. 🎙️")
 
+    # Mensaje de "cargando" para reducir la percepción de demora
+    loading_msg = await ctx.send("🔄 Buscando y cargando la canción, espera un momento...")
+
     vc = ctx.voice_client or await ctx.author.voice.channel.connect()
     
     # Variables para la imagen y duración
     album_image = None
     dur = 0
     
-    # Si es un enlace de Spotify, obtenemos info de Spotify
+    # Si es un enlace de Spotify, obtenemos info directamente
     if "spotify.com/track" in query:
         track_name, album_image, dur = get_spotify_track_info(query)
         if not track_name:
+            await loading_msg.delete()
             return await ctx.send("No pude obtener la información de Spotify. Intenta con otra canción. 🎵")
         query = track_name
     else:
-        # Si no es Spotify, buscamos en YouTube
-        url, title, thumb, dur, vid_url, uploader = get_youtube_url(query)
-        if not url:
-            return await ctx.send("No encontré esa canción en YouTube. Prueba con otra. 🔍")
+        # Si no es un enlace, buscamos en Spotify por nombre
+        track_name, album_image, dur = search_spotify(query)
+        if track_name:
+            query = track_name
+        else:
+            # Si no encontramos en Spotify, buscamos en YouTube
+            url, title, thumb, dur, vid_url, uploader = get_youtube_url(query)
+            if not url:
+                await loading_msg.delete()
+                return await ctx.send("No encontré esa canción en YouTube. Prueba con otra. 🔍")
 
-    queue.append((query, ctx.author))
+    queue.append((query, ctx.author, album_image, dur))
 
     # Formatear el mensaje de "Añadido a la cola"
     duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
@@ -156,6 +185,7 @@ async def play(ctx, *, query: str):
     )
     if album_image:
         embed.set_thumbnail(url=album_image)
+    await loading_msg.delete()
     await ctx.send(embed=embed)
 
     if not vc.is_playing() and not vc.is_paused():
@@ -165,55 +195,58 @@ async def play_next(ctx):
     if not queue:
         return
 
-    query, requester = queue.pop(0)
+    query, requester, album_image, dur = queue.pop(0)
     vc = ctx.voice_client
     if not vc:
         return
 
-    # Variables para la imagen y duración
-    album_image = None
-    dur = 0
-
-    # Si la query proviene de Spotify, obtenemos la imagen y duración
-    if "spotify.com/track" in query:
-        track_name, album_image, dur = get_spotify_track_info(query)
-        if track_name:
-            query = track_name
-
     # Buscamos en YouTube para reproducir
     url, title, thumb, dur_yt, vid_url, uploader = get_youtube_url(query)
     if not url:
+        await ctx.send("No pude encontrar el video en YouTube, pasando a la siguiente canción...")
         return await play_next(ctx)
 
     if url.endswith(".m3u8"):
+        await ctx.send("Formato no compatible (.m3u8), pasando a la siguiente canción...")
         return await play_next(ctx)
 
     # Usamos la duración de Spotify si está disponible, si no, la de YouTube
     dur = dur if dur else dur_yt
 
-    source = discord.FFmpegPCMAudio(url, executable='ffmpeg', before_options='-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', options='-vn')
-    def after(e):
-        if e:
-            print(f"Error: {e}")
-        asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop)
+    try:
+        source = discord.FFmpegPCMAudio(
+            url,
+            executable='ffmpeg',
+            before_options='-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -loglevel quiet',
+            options='-vn -bufsize 64k'  # Reducir buffer para mejor estabilidad
+        )
+        def after(e):
+            if e:
+                print(f"Error en reproducción: {e}")
+            asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop)
 
-    vc.play(source, after=after)
+        vc.play(source, after=after)
 
-    embed = discord.Embed(color=discord.Color.blue())
-    duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
-    embed.description = (
-        f"**Reproduciendo** 🎶\n"
-        f"**{title.split(' (')[0].strip()}** • {duration_str}\n"
-        f"**Solicitado por:** {requester.mention}\n"
-        f"**Canciones en cola:** {len(queue)}"
-    )
-    # Usamos la imagen de Spotify si está disponible, si no, la miniatura de YouTube
-    if album_image:
-        embed.set_thumbnail(url=album_image)
-    else:
-        embed.set_thumbnail(url=thumb)
+        embed = discord.Embed(color=discord.Color.blue())
+        duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
+        embed.description = (
+            f"**Reproduciendo** 🎶\n"
+            f"**{title.split(' (')[0].strip()}** • {duration_str}\n"
+            f"**Solicitado por:** {requester.mention}\n"
+            f"**Canciones en cola:** {len(queue)}"
+        )
+        # Usamos la imagen de Spotify si está disponible, si no, la miniatura de YouTube
+        if album_image:
+            embed.set_thumbnail(url=album_image)
+        else:
+            embed.set_thumbnail(url=thumb)
 
-    await ctx.send(embed=embed, view=MusicControls(bot, ctx))
+        await ctx.send(embed=embed, view=MusicControls(bot, ctx))
+
+    except Exception as e:
+        print(f"Error al reproducir: {e}")
+        await ctx.send("Hubo un error al reproducir la canción, pasando a la siguiente...")
+        await play_next(ctx)
 
 @bot.command()
 async def leave(ctx):
