@@ -307,7 +307,7 @@ def setup_music_commands(bot):
         # Mezclar las colas sin interrumpir la canción actual
         combined_queue = audio_ready_queue + [(url_or_query, display_query, requester, album_image, dur, False) for url_or_query, display_query, requester, album_image, dur, _ in queue]
         random.shuffle(combined_queue)
-씨        audio_ready_queue = []
+        audio_ready_queue = []
         queue = []
         for item in combined_queue:
             if len(item) == 6 and item[5] is not False:  # Es una entrada de audio_ready_queue
