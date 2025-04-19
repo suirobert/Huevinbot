@@ -84,13 +84,14 @@ def get_spotify_track_info(url):
 
 def get_youtube_info(url_or_query, is_url=False):
     ydl_opts = {
-        'format': 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio',
+        'format': 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best',  # Priorizar formatos compatibles
         'quiet': True,
         'noplaylist': True,
         'default_search': 'ytsearch' if not is_url else None,
-        'extract_flat': True,  # Reducimos la carga al no extraer info completa
+        'extract_flat': False,  # Revertimos para obtener info completa
         'no_warnings': True,
         'ignoreerrors': True,
+        'force_generic_extractor': True,  # Forzar extractor genérico si falla
     }
     try:
         with youtube_dl.YoutubeDL(ydl_opts) as ydl:
@@ -102,9 +103,11 @@ def get_youtube_info(url_or_query, is_url=False):
                     info = info['entries'][0]
             if not info:
                 return None, None, None, 0, None, None
+            # Log para depurar el formato seleccionado
+            print(f"Formato seleccionado para {url_or_query}: {info.get('url')}")
             return info.get('url'), info.get('title'), info.get('thumbnail'), info.get('duration', 0), f"https://www.youtube.com/watch?v={info.get('id')}", info.get('uploader', 'Desconocido')
     except Exception as e:
-        print(f"Error en yt_dlp: {e}")
+        print(f"Error en yt_dlp: {str(e)}")
         return None, None, None, 0, None, None
 
 # Función para ejecutar tareas pesadas en un hilo separado
@@ -249,7 +252,7 @@ async def play_next(ctx):
             url,
             executable='ffmpeg',
             before_options='-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -loglevel quiet',
-            options='-vn -bufsize 64k'
+            options='-vn -bufsize 64k -af "aresample=48000"'
         )
         def after(e):
             if e:
