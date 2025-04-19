@@ -11,6 +11,7 @@ skip_flag = False
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 current_message = None  # Referencia al mensaje actual de reproducción
 queue_messages = []  # Lista de mensajes relacionados con la cola
+processing_task = None  # Para controlar la tarea de process_next_songs
 
 # Función para ejecutar tareas pesadas en un hilo separado
 async def run_in_executor(func, *args):
@@ -19,7 +20,7 @@ async def run_in_executor(func, *args):
 
 # Procesar las próximas canciones de la cola principal (máximo 3 a la vez)
 async def process_next_songs(ctx):
-    global queue, audio_ready_queue
+    global queue, audio_ready_queue, processing_task
     while len(audio_ready_queue) < 3 and queue:
         song_info = queue.pop(0)
         url_or_query, display_name, requester, album_image, dur, is_youtube_url = song_info
@@ -77,17 +78,23 @@ class MusicControls(discord.ui.View):
                 pass
             current_message = None
         print(f"Estado del voice_client después de stop: is_playing={vc.is_playing()}, is_paused={vc.is_paused()}")
+        print(f"Cola antes de reproducir siguiente (next_song): audio_ready_queue={[(item[1], item[4]) for item in audio_ready_queue]}, queue={[(item[1], item[4]) for item in queue]}")
         await play_next(self.ctx)
 
     @discord.ui.button(label="", emoji="🔀", style=discord.ButtonStyle.grey)
     async def shuffle(self, interaction: discord.Interaction, button):
-        global queue, audio_ready_queue
+        global queue, audio_ready_queue, processing_task
         await interaction.response.defer(ephemeral=True)
         vc = self.ctx.voice_client
         if not vc:
             return await interaction.followup.send("No estoy conectado a ningún canal de voz. 🎙️", ephemeral=True)
         if not queue and not audio_ready_queue:
             return await interaction.followup.send("La cola está vacía. ¡Añade algunas canciones primero! 🎵", ephemeral=True)
+        
+        # Cancelar cualquier tarea de procesamiento en curso
+        if processing_task and not processing_task.done():
+            processing_task.cancel()
+            await asyncio.sleep(0.1)  # Dar tiempo para que la tarea se cancele
         
         # Mezclar las colas sin interrumpir la canción actual
         combined_queue = audio_ready_queue + [(url_or_query, display_name, requester, album_image, dur, False) for url_or_query, display_name, requester, album_image, dur, _ in queue]
@@ -100,10 +107,12 @@ class MusicControls(discord.ui.View):
             else:  # Es una entrada de queue
                 queue.append((item[0], item[1], item[2], item[3], item[4], False))
         
+        print(f"Cola después de shuffle: audio_ready_queue={[(item[1], item[4]) for item in audio_ready_queue]}, queue={[(item[1], item[4]) for item in queue]}")
+        
         await interaction.followup.send("🔀 ¡Cola mezclada! Las próximas canciones se reproducirán en orden aleatorio.", ephemeral=True)
         
-        # Procesar las próximas canciones (sin interrumpir la reproducción actual)
-        asyncio.create_task(process_next_songs(self.ctx))
+        # Reiniciar el procesamiento de canciones
+        processing_task = asyncio.create_task(process_next_songs(self.ctx))
 
     @discord.ui.button(label="", emoji="📜", style=discord.ButtonStyle.grey)
     async def show_queue(self, interaction: discord.Interaction, button):
@@ -142,13 +151,15 @@ class MusicControls(discord.ui.View):
 
     @discord.ui.button(label="", emoji="⏹️", style=discord.ButtonStyle.danger)
     async def stop(self, interaction: discord.Interaction, button):
-        global skip_flag, current_message, queue_messages
+        global skip_flag, current_message, queue_messages, processing_task
         await interaction.response.defer(ephemeral=True)
         vc = self.ctx.voice_client
         if not vc:
             return await interaction.followup.send("No estoy conectado a ningún canal de voz. 🎙️", ephemeral=True)
         queue.clear()
         audio_ready_queue.clear()
+        if processing_task and not processing_task.done():
+            processing_task.cancel()
         if vc.is_playing() or vc.is_paused():
             skip_flag = True
             vc.stop()
@@ -171,10 +182,13 @@ class MusicControls(discord.ui.View):
         self.clear_items()
 
 async def play_next(ctx):
-    global skip_flag, current_message, queue_messages
+    global skip_flag, current_message, queue_messages, processing_task
     # Procesar más canciones si es necesario
     if len(audio_ready_queue) < 3:
-        asyncio.create_task(process_next_songs(ctx))
+        if processing_task and not processing_task.done():
+            processing_task.cancel()
+            await asyncio.sleep(0.1)  # Dar tiempo para que la tarea se cancele
+        processing_task = asyncio.create_task(process_next_songs(ctx))
 
     if not audio_ready_queue:
         print("No hay canciones en audio_ready_queue para reproducir.")
@@ -233,7 +247,7 @@ async def play_next(ctx):
 def setup_music_commands(bot):
     @bot.command(name="play")
     async def play(ctx, *, query: str):
-        global queue, queue_messages
+        global queue, queue_messages, processing_task
         if ctx.author.voice is None:
             return await ctx.send("Debes estar en un canal de voz para usar este comando. 🎙️")
 
@@ -364,12 +378,17 @@ def setup_music_commands(bot):
 
     @bot.command()
     async def shuffle(ctx):
-        global queue, audio_ready_queue
+        global queue, audio_ready_queue, processing_task
         vc = ctx.voice_client
         if not vc:
             return await ctx.send("No estoy conectado a ningún canal de voz. 🎙️")
         if not queue and not audio_ready_queue:
             return await ctx.send("La cola está vacía. ¡Añade algunas canciones primero! 🎵")
+        
+        # Cancelar cualquier tarea de procesamiento en curso
+        if processing_task and not processing_task.done():
+            processing_task.cancel()
+            await asyncio.sleep(0.1)  # Dar tiempo para que la tarea se cancele
         
         # Mezclar las colas sin interrumpir la canción actual
         combined_queue = audio_ready_queue + [(url_or_query, display_name, requester, album_image, dur, False) for url_or_query, display_name, requester, album_image, dur, _ in queue]
@@ -382,10 +401,12 @@ def setup_music_commands(bot):
             else:  # Es una entrada de queue
                 queue.append((item[0], item[1], item[2], item[3], item[4], False))
         
+        print(f"Cola después de shuffle (comando): audio_ready_queue={[(item[1], item[4]) for item in audio_ready_queue]}, queue={[(item[1], item[4]) for item in queue]}")
+        
         await ctx.send("🔀 ¡Cola mezclada! Las próximas canciones se reproducirán en orden aleatorio.")
         
-        # Procesar las próximas canciones (sin interrumpir la reproducción actual)
-        asyncio.create_task(process_next_songs(ctx))
+        # Reiniciar el procesamiento de canciones
+        processing_task = asyncio.create_task(process_next_songs(ctx))
 
     @bot.command()
     async def queue(ctx):
@@ -423,10 +444,12 @@ def setup_music_commands(bot):
 
     @bot.command()
     async def leave(ctx):
-        global skip_flag, current_message, queue_messages
+        global skip_flag, current_message, queue_messages, processing_task
         if ctx.voice_client:
             queue.clear()
             audio_ready_queue.clear()
+            if processing_task and not processing_task.done():
+                processing_task.cancel()
             if ctx.voice_client.is_playing() or ctx.voice_client.is_paused():
                 skip_flag = True
                 ctx.voice_client.stop()
