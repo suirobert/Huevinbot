@@ -109,18 +109,22 @@ class MusicControls(discord.ui.View):
         if not audio_ready_queue and not queue:
             return await interaction.followup.send("La cola está vacía. ¡Añade algunas canciones! 🎵", ephemeral=True)
         
+        # Tomar una instantánea de las colas para evitar discrepancias
+        current_audio_ready = audio_ready_queue.copy()
+        current_queue = queue.copy()
+        
         # Depuración: Mostrar el contenido de las colas
-        print(f"[show_queue] audio_ready_queue: {[(item[1], item[4]) for item in audio_ready_queue]}")
-        print(f"[show_queue] queue: {[(item[1], item[4]) for item in queue]}")
+        print(f"[show_queue] audio_ready_queue: {[(item[1], item[4]) for item in current_audio_ready]}")
+        print(f"[show_queue] queue: {[(item[1], item[4]) for item in current_queue]}")
         
         embed = discord.Embed(title="📜 Cola de Canciones", color=discord.Color.blue())
         description = ""
         # Estandarizar el formato de las entradas para asegurar consistencia
         combined_queue = []
-        for item in audio_ready_queue:
+        for item in current_audio_ready:
             url, display_query, requester, album_image, dur, thumb = item
             combined_queue.append((url, display_query, requester, album_image, dur, thumb))
-        for item in queue:
+        for item in current_queue:
             url_or_query, display_query, requester, album_image, dur, is_youtube_url = item
             combined_queue.append((None, display_query, requester, album_image, dur, None))
         
@@ -247,22 +251,36 @@ def setup_music_commands(bot):
                 return await ctx.send("No pude obtener las canciones de la playlist. Intenta con otra. 🎵")
             
             print(f"Añadiendo {len(playlist_tracks)} canciones a la cola...")
-            for track_name, album_image, dur in playlist_tracks:
+            # Procesar solo la primera canción de inmediato para comenzar la reproducción más rápido
+            if playlist_tracks:
+                first_track = playlist_tracks[0]
+                track_name, album_image, dur = first_track
                 queue.append((track_name, track_name, ctx.author, album_image, dur, False))
-                print(f"Canción añadida a queue: {track_name}")
+                print(f"Primera canción añadida a queue: {track_name}")
+                # Procesar la primera canción de inmediato
+                await process_next_songs(ctx)
+            
+            # Añadir el resto de las canciones a la cola en segundo plano
+            async def add_remaining_tracks():
+                for track in playlist_tracks[1:]:
+                    track_name, album_image, dur = track
+                    queue.append((track_name, track_name, ctx.author, album_image, dur, False))
+                    print(f"Canción añadida a queue: {track_name}")
+                # Procesar más canciones si es necesario
+                if not vc.is_playing() and not vc.is_paused():
+                    print("Procesando más canciones después de añadir el resto de la playlist...")
+                    await process_next_songs(ctx)
+            
+            asyncio.create_task(add_remaining_tracks())
             
             embed = discord.Embed(color=discord.Color.blue())
             embed.description = (
                 f"**Añadidas {len(playlist_tracks)} canciones a la cola desde la playlist '{playlist_name}'** 🩸\n"
+                f"La primera canción comenzará pronto, el resto se está cargando en segundo plano..."
             )
             await loading_msg.delete()
             msg = await ctx.send(embed=embed)
             queue_messages.append(msg)
-
-            # Procesar las primeras canciones y comenzar la reproducción
-            if not vc.is_playing() and not vc.is_paused():
-                print("Procesando primeras canciones después de añadir playlist...")
-                await process_next_songs(ctx)
 
         else:
             album_image = None
@@ -299,7 +317,7 @@ def setup_music_commands(bot):
             msg = await ctx.send(embed=embed)
             queue_messages.append(msg)
 
-            # Procesar las primeras canciones y comenzar la reproducción
+            # Procesar la primera canción y comenzar la reproducción
             if not vc.is_playing() and not vc.is_paused():
                 print("Procesando primera canción después de añadir una sola pista...")
                 await process_next_songs(ctx)
@@ -335,18 +353,22 @@ def setup_music_commands(bot):
         if not audio_ready_queue and not queue:
             return await ctx.send("La cola está vacía. ¡Añade algunas canciones! 🎵")
         
+        # Tomar una instantánea de las colas para evitar discrepancias
+        current_audio_ready = audio_ready_queue.copy()
+        current_queue = queue.copy()
+        
         # Depuración: Mostrar el contenido de las colas
-        print(f"[queue] audio_ready_queue: {[(item[1], item[4]) for item in audio_ready_queue]}")
-        print(f"[queue] queue: {[(item[1], item[4]) for item in queue]}")
+        print(f"[queue] audio_ready_queue: {[(item[1], item[4]) for item in current_audio_ready]}")
+        print(f"[queue] queue: {[(item[1], item[4]) for item in current_queue]}")
         
         embed = discord.Embed(title="📜 Cola de Canciones", color=discord.Color.blue())
         description = ""
         # Estandarizar el formato de las entradas para asegurar consistencia
         combined_queue = []
-        for item in audio_ready_queue:
+        for item in current_audio_ready:
             url, display_query, requester, album_image, dur, thumb = item
             combined_queue.append((url, display_query, requester, album_image, dur, thumb))
-        for item in queue:
+        for item in current_queue:
             url_or_query, display_query, requester, album_image, dur, is_youtube_url = item
             combined_queue.append((None, display_query, requester, album_image, dur, None))
         
