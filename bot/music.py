@@ -5,8 +5,8 @@ import random
 from .utils import get_youtube_info, search_spotify, get_spotify_track_info, get_spotify_playlist_info, get_youtube_playlist_info
 
 # Colas y configuraciones
-queue = []  # Cola principal: almacena información básica de las canciones
-audio_ready_queue = []  # Cola secundaria: almacena canciones con audio listo para reproducir
+queue = []  # Cola principal: (url_or_query, display_name, requester, album_image, dur, is_youtube_url)
+audio_ready_queue = []  # Cola secundaria: (url, display_name, requester, album_image, dur, thumb)
 skip_flag = False
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 current_message = None  # Referencia al mensaje actual de reproducción
@@ -22,15 +22,17 @@ async def process_next_songs(ctx):
     global queue, audio_ready_queue
     while len(audio_ready_queue) < 3 and queue:
         song_info = queue.pop(0)
-        url_or_query, display_query, requester, album_image, dur, is_youtube_url = song_info
+        url_or_query, display_name, requester, album_image, dur, is_youtube_url = song_info
         url, title, thumb, dur_yt, vid_url, uploader = await run_in_executor(get_youtube_info, url_or_query, is_youtube_url)
         if url and not url.endswith(".m3u8"):
             dur = dur if dur else dur_yt
-            audio_ready_queue.append((url, display_query, requester, album_image, dur, thumb))
-            print(f"Canción procesada y añadida a audio_ready_queue: {display_query}")
+            # Usar el título de YouTube como display_name si está disponible, de lo contrario mantener el original
+            display_name = title if title and is_youtube_url else display_name
+            audio_ready_queue.append((url, display_name, requester, album_image, dur, thumb))
+            print(f"Canción procesada y añadida a audio_ready_queue: {display_name}")
         else:
-            print(f"No se pudo procesar {display_query}, se omite.")
-            await ctx.send(f"No pude encontrar '{display_query}' en YouTube. Se omite de la cola. 🎶")
+            print(f"No se pudo procesar {display_name}, se omite.")
+            await ctx.send(f"No pude encontrar '{display_name}' en YouTube. Se omite de la cola. 🎶")
     if audio_ready_queue and not ctx.voice_client.is_playing() and not ctx.voice_client.is_paused():
         print("Llamando a play_next desde process_next_songs")
         await play_next(ctx)
@@ -88,7 +90,7 @@ class MusicControls(discord.ui.View):
             return await interaction.followup.send("La cola está vacía. ¡Añade algunas canciones primero! 🎵", ephemeral=True)
         
         # Mezclar las colas sin interrumpir la canción actual
-        combined_queue = audio_ready_queue + [(url_or_query, display_query, requester, album_image, dur, False) for url_or_query, display_query, requester, album_image, dur, _ in queue]
+        combined_queue = audio_ready_queue + [(url_or_query, display_name, requester, album_image, dur, False) for url_or_query, display_name, requester, album_image, dur, _ in queue]
         random.shuffle(combined_queue)
         audio_ready_queue = []
         queue = []
@@ -122,16 +124,16 @@ class MusicControls(discord.ui.View):
         # Estandarizar el formato de las entradas para asegurar consistencia
         combined_queue = []
         for item in current_audio_ready:
-            url, display_query, requester, album_image, dur, thumb = item
-            combined_queue.append((url, display_query, requester, album_image, dur, thumb))
+            url, display_name, requester, album_image, dur, thumb = item
+            combined_queue.append((url, display_name, requester, album_image, dur, thumb))
         for item in current_queue:
-            url_or_query, display_query, requester, album_image, dur, is_youtube_url = item
-            combined_queue.append((None, display_query, requester, album_image, dur, None))
+            url_or_query, display_name, requester, album_image, dur, is_youtube_url = item
+            combined_queue.append((None, display_name, requester, album_image, dur, None))
         
         for i, item in enumerate(combined_queue[:10], 1):
-            _, display_query, requester, _, dur, _ = item
+            _, display_name, requester, _, dur, _ = item
             duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
-            description += f"**{i}.** {display_query.split(' (')[0].strip()} • {duration_str} (por {requester.mention})\n"
+            description += f"**{i}.** {display_name.split(' (')[0].strip()} • {duration_str} (por {requester.mention})\n"
         if len(combined_queue) > 10:
             description += f"\nY {len(combined_queue) - 10} más..."
         embed.description = description
@@ -178,13 +180,13 @@ async def play_next(ctx):
         print("No hay canciones en audio_ready_queue para reproducir.")
         return
 
-    url, display_query, requester, album_image, dur, thumb = audio_ready_queue.pop(0)
+    url, display_name, requester, album_image, dur, thumb = audio_ready_queue.pop(0)
     vc = ctx.voice_client
     if not vc:
         print("No hay voice_client disponible.")
         return
 
-    print(f"Intentando reproducir: {display_query}")
+    print(f"Intentando reproducir: {display_name}")
     try:
         if vc.is_playing() or vc.is_paused():
             print("Voice client todavía está reproduciendo o pausado. Deteniendo antes de continuar...")
@@ -207,13 +209,13 @@ async def play_next(ctx):
             skip_flag = False
 
         vc.play(source, after=after)
-        print(f"Reproduciendo: {display_query}")
+        print(f"Reproduciendo: {display_name}")
 
         embed = discord.Embed(color=discord.Color.blue())
         duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
         embed.description = (
             f"**Reproduciendo Ahora**\n"
-            f"{display_query.split(' (')[0].strip()} • {duration_str}\n"
+            f"{display_name.split(' (')[0].strip()} • {duration_str}\n"
             f"[{requester.mention}]"
         )
         if album_image:
@@ -224,7 +226,7 @@ async def play_next(ctx):
         current_message = await ctx.send(embed=embed, view=MusicControls(ctx.bot, ctx))
 
     except Exception as e:
-        print(f"Error detallado al reproducir {display_query}: {str(e)}")
+        print(f"Error detallado al reproducir {display_name}: {str(e)}")
         await ctx.send(f"Hubo un error al reproducir la canción: {str(e)}. Pasando a la siguiente... 🎶")
         await play_next(ctx)
 
@@ -256,8 +258,8 @@ def setup_music_commands(bot):
             # Procesar solo la primera canción de inmediato para comenzar la reproducción más rápido
             if playlist_tracks:
                 first_track = playlist_tracks[0]
-                track_name, album_image, dur = first_track
-                queue.append((track_name, track_name, ctx.author, album_image, dur, False))
+                track_url, track_name, album_image, dur = first_track
+                queue.append((track_url, track_name, ctx.author, album_image, dur, False))
                 print(f"Primera canción añadida a queue: {track_name}")
                 # Procesar la primera canción de inmediato
                 await process_next_songs(ctx)
@@ -265,8 +267,8 @@ def setup_music_commands(bot):
             # Añadir el resto de las canciones a la cola en segundo plano
             async def add_remaining_tracks():
                 for track in playlist_tracks[1:]:
-                    track_name, album_image, dur = track
-                    queue.append((track_name, track_name, ctx.author, album_image, dur, False))
+                    track_url, track_name, album_image, dur = track
+                    queue.append((track_url, track_name, ctx.author, album_image, dur, False))
                     print(f"Canción añadida a queue: {track_name}")
                 # Procesar más canciones si es necesario
                 if not vc.is_playing() and not vc.is_paused():
@@ -293,8 +295,8 @@ def setup_music_commands(bot):
             # Procesar solo la primera canción de inmediato para comenzar la reproducción más rápido
             if playlist_tracks:
                 first_track = playlist_tracks[0]
-                track_name, album_image, dur = first_track
-                queue.append((track_name, track_name, ctx.author, album_image, dur, True))  # is_youtube_url=True
+                track_url, track_name, album_image, dur = first_track
+                queue.append((track_url, track_name, ctx.author, album_image, dur, True))  # is_youtube_url=True
                 print(f"Primera canción añadida a queue: {track_name}")
                 # Procesar la primera canción de inmediato
                 await process_next_songs(ctx)
@@ -302,8 +304,8 @@ def setup_music_commands(bot):
             # Añadir el resto de las canciones a la cola en segundo plano
             async def add_remaining_tracks():
                 for track in playlist_tracks[1:]:
-                    track_name, album_image, dur = track
-                    queue.append((track_name, track_name, ctx.author, album_image, dur, True))  # is_youtube_url=True
+                    track_url, track_name, album_image, dur = track
+                    queue.append((track_url, track_name, ctx.author, album_image, dur, True))  # is_youtube_url=True
                     print(f"Canción añadida a queue: {track_name}")
                 # Procesar más canciones si es necesario
                 if not vc.is_playing() and not vc.is_paused():
@@ -326,30 +328,30 @@ def setup_music_commands(bot):
             if is_youtube_url:
                 track_name, album_image, dur = await run_in_executor(search_spotify, query)
                 if track_name:
-                    display_query = track_name
+                    display_name = track_name
                 else:
-                    display_query = query
+                    display_name = query
             elif is_spotify_track:
                 track_name, album_image, dur = await run_in_executor(get_spotify_track_info, query)
                 if not track_name:
                     await loading_msg.delete()
                     return await ctx.send("No pude obtener la información de Spotify. Intenta con otra canción. 🎵")
-                display_query = track_name
+                display_name = track_name
             else:
                 track_name, album_image, dur = await run_in_executor(search_spotify, query)
                 if track_name:
-                    display_query = track_name
+                    display_name = track_name
                 else:
-                    display_query = query
+                    display_name = query
 
-            queue.append((original_url or display_query, display_query, ctx.author, album_image, dur, is_youtube_url))
-            print(f"Canción añadida a queue: {display_query}")
+            queue.append((original_url or display_name, display_name, ctx.author, album_image, dur, is_youtube_url))
+            print(f"Canción añadida a queue: {display_name}")
 
             duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
             embed = discord.Embed(color=discord.Color.blue())
             embed.description = (
                 f"**Añadido a la Cola** 🩸\n"
-                f"{display_query.split(' (')[0].strip()} • {duration_str}\n"
+                f"{display_name.split(' (')[0].strip()} • {duration_str}\n"
             )
             await loading_msg.delete()
             msg = await ctx.send(embed=embed)
@@ -370,7 +372,7 @@ def setup_music_commands(bot):
             return await ctx.send("La cola está vacía. ¡Añade algunas canciones primero! 🎵")
         
         # Mezclar las colas sin interrumpir la canción actual
-        combined_queue = audio_ready_queue + [(url_or_query, display_query, requester, album_image, dur, False) for url_or_query, display_query, requester, album_image, dur, _ in queue]
+        combined_queue = audio_ready_queue + [(url_or_query, display_name, requester, album_image, dur, False) for url_or_query, display_name, requester, album_image, dur, _ in queue]
         random.shuffle(combined_queue)
         audio_ready_queue = []
         queue = []
@@ -404,16 +406,16 @@ def setup_music_commands(bot):
         # Estandarizar el formato de las entradas para asegurar consistencia
         combined_queue = []
         for item in current_audio_ready:
-            url, display_query, requester, album_image, dur, thumb = item
-            combined_queue.append((url, display_query, requester, album_image, dur, thumb))
+            url, display_name, requester, album_image, dur, thumb = item
+            combined_queue.append((url, display_name, requester, album_image, dur, thumb))
         for item in current_queue:
-            url_or_query, display_query, requester, album_image, dur, is_youtube_url = item
-            combined_queue.append((None, display_query, requester, album_image, dur, None))
+            url_or_query, display_name, requester, album_image, dur, is_youtube_url = item
+            combined_queue.append((None, display_name, requester, album_image, dur, None))
         
         for i, item in enumerate(combined_queue[:10], 1):
-            _, display_query, requester, _, dur, _ = item
+            _, display_name, requester, _, dur, _ = item
             duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
-            description += f"**{i}.** {display_query.split(' (')[0].strip()} • {duration_str} (por {requester.mention})\n"
+            description += f"**{i}.** {display_name.split(' (')[0].strip()} • {duration_str} (por {requester.mention})\n"
         if len(combined_queue) > 10:
             description += f"\nY {len(combined_queue) - 10} más..."
         embed.description = description
