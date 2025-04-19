@@ -27,7 +27,7 @@ def search_spotify(query):
 def get_spotify_track_info(url):
     try:
         track_info = sp.track(url)
-        track_name = f"{track_info['name']} {track_info['artists'][0]['name']}"
+        track_name = f"{track_info['name']} {track['artists'][0]['name']}"
         album_image = track['album']['images'][0]['url'] if track['album']['images'] else None
         duration_ms = track_info['duration_ms']
         duration_sec = duration_ms // 1000
