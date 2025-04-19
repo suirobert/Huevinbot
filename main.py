@@ -38,6 +38,9 @@ user_conversations = {}
 CONVERSATION_TIMEOUT = timedelta(minutes=30)
 MAX_HISTORY = 3
 
+# Variable para rastrear si se ha usado "skip"
+skip_flag = False
+
 # Ejecutor de hilos para tareas pesadas
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
@@ -135,6 +138,7 @@ class MusicControls(discord.ui.View):
 
     @discord.ui.button(label="", emoji="⏭️", style=discord.ButtonStyle.secondary)
     async def next_song(self, interaction: discord.Interaction, button):
+        global skip_flag
         await interaction.response.defer(ephemeral=True)
         vc = self.ctx.voice_client
         if not vc:
@@ -143,21 +147,24 @@ class MusicControls(discord.ui.View):
             return await interaction.followup.send("La cola está vacía.", ephemeral=True)
         # Detenemos la reproducción actual y esperamos un momento para asegurar que termine
         if vc.is_playing() or vc.is_paused():
+            skip_flag = True  # Indicamos que se usó "skip"
             vc.stop()
-            await asyncio.sleep(0.5)  # Breve espera para que FFmpeg termine
+            await asyncio.sleep(1.0)  # Aumentamos la espera para asegurar que FFmpeg termine
         print(f"Estado del voice_client después de stop: is_playing={vc.is_playing()}, is_paused={vc.is_paused()}")
         await play_next(self.ctx)
 
     @discord.ui.button(label="", emoji="⏹️", style=discord.ButtonStyle.danger)
     async def stop(self, interaction: discord.Interaction, button):
+        global skip_flag
         await interaction.response.defer(ephemeral=True)
         vc = self.ctx.voice_client
         if not vc:
             return await interaction.followup.send("No estoy conectado a ningún canal de voz.", ephemeral=True)
         queue.clear()
         if vc.is_playing() or vc.is_paused():
+            skip_flag = True
             vc.stop()
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1.0)
         await vc.disconnect()
         await interaction.followup.send("Reproducción detenida y desconectado. 🛑", ephemeral=True)
         self.clear_items()
@@ -222,20 +229,26 @@ async def play(ctx, *, query: str):
         await play_next(ctx)
 
 async def play_next(ctx):
+    global skip_flag
     if not queue:
         return
 
-    url_or_query, display_query, requester, album_image, dur, is_youtube_url = queue.pop(0)
+    url_or_query, display_query, requester, album_image, dur, is_youtube_url = queue[0]  # No eliminamos todavía
     vc = ctx.voice_client
     if not vc:
         return
 
+    print(f"Intentando reproducir: {display_query}")
     url, title, thumb, dur_yt, vid_url, uploader = await run_in_executor(get_youtube_info, url_or_query, is_youtube_url)
     if not url:
+        print(f"No se pudo obtener el enlace de audio para: {display_query}")
+        queue.pop(0)  # Eliminamos la canción fallida
         await ctx.send("No pude encontrar el video en YouTube, pasando a la siguiente canción...")
         return await play_next(ctx)
 
     if url.endswith(".m3u8"):
+        print(f"Formato no compatible (.m3u8) para: {display_query}")
+        queue.pop(0)
         await ctx.send("Formato no compatible (.m3u8), pasando a la siguiente canción...")
         return await play_next(ctx)
 
@@ -245,8 +258,9 @@ async def play_next(ctx):
         # Verificamos el estado del voice_client antes de reproducir
         if vc.is_playing() or vc.is_paused():
             print("Voice client todavía está reproduciendo o pausado. Deteniendo antes de continuar...")
+            skip_flag = True
             vc.stop()
-            await asyncio.sleep(0.5)  # Breve espera para asegurar que FFmpeg termine
+            await asyncio.sleep(1.0)
 
         source = discord.FFmpegPCMAudio(
             url,
@@ -255,10 +269,14 @@ async def play_next(ctx):
             options='-vn -bufsize 64k -af "aresample=48000"'
         )
         def after(e):
+            global skip_flag
             if e:
                 print(f"Error en reproducción: {e}")
-            asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop)
+            if not skip_flag:  # Solo llamamos a play_next si no se usó "skip"
+                asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop)
+            skip_flag = False  # Reseteamos el flag
 
+        queue.pop(0)  # Eliminamos la canción de la cola después de confirmar que se puede reproducir
         vc.play(source, after=after)
 
         embed = discord.Embed(color=discord.Color.blue())
@@ -277,17 +295,20 @@ async def play_next(ctx):
         await ctx.send(embed=embed, view=MusicControls(bot, ctx))
 
     except Exception as e:
-        print(f"Error detallado al reproducir: {str(e)}")
+        print(f"Error detallado al reproducir {display_query}: {str(e)}")
+        queue.pop(0)  # Eliminamos la canción fallida
         await ctx.send(f"Hubo un error al reproducir la canción: {str(e)}. Pasando a la siguiente...")
         await play_next(ctx)
 
 @bot.command()
 async def leave(ctx):
+    global skip_flag
     if ctx.voice_client:
         queue.clear()
         if ctx.voice_client.is_playing() or ctx.voice_client.is_paused():
+            skip_flag = True
             ctx.voice_client.stop()
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1.0)
         await ctx.voice_client.disconnect()
         await ctx.send("👋 Me salí del canal de voz. ¡Nos vemos!")
     else:
