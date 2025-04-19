@@ -27,8 +27,7 @@ async def process_next_songs(ctx):
         url, title, thumb, dur_yt, vid_url, uploader = await run_in_executor(get_youtube_info, url_or_query, is_youtube_url)
         if url and not url.endswith(".m3u8"):
             dur = dur if dur else dur_yt
-            # Usar el título de YouTube como display_name si está disponible, de lo contrario mantener el original
-            display_name = title if title and is_youtube_url else display_name
+            # No sobrescribimos display_name, mantenemos el original
             audio_ready_queue.append((url, display_name, requester, album_image, dur, thumb))
             print(f"Canción procesada y añadida a audio_ready_queue: {display_name}")
         else:
