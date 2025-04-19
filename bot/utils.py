@@ -90,29 +90,62 @@ def get_youtube_playlist_info(playlist_url):
     tracks: Lista de tuplas (track_name, album_image, duration)
     playlist_name: Nombre de la playlist
     """
+    # Extraer el ID de la playlist de la URL
+    playlist_id = None
+    if "list=" in playlist_url:
+        playlist_id = playlist_url.split("list=")[1].split("&")[0]
+    elif "youtube.com/playlist" in playlist_url:
+        playlist_id = playlist_url.split("list=")[1].split("&")[0] if "list=" in playlist_url else None
+    
+    if not playlist_id:
+        print(f"No se pudo extraer el ID de la playlist de la URL: {playlist_url}")
+        return [], "Desconocida"
+    
+    # Construir una URL específica para la playlist
+    clean_playlist_url = f"https://www.youtube.com/playlist?list={playlist_id}"
+    print(f"Procesando playlist de YouTube con URL: {clean_playlist_url}")
+
     ydl_opts = {
         'extract_flat': True,  # Solo extraer metadata, sin descargar
         'quiet': True,
         'no_warnings': True,
         'ignoreerrors': True,
+        'playlist_items': '1-1000',  # Limitar a 1000 videos para evitar problemas con playlists muy grandes
     }
     try:
         with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(playlist_url, download=False)
-            if not info or 'entries' not in info:
-                print("No se encontraron videos en la playlist de YouTube.")
+            info = ydl.extract_info(clean_playlist_url, download=False)
+            if not info:
+                print("No se obtuvo información de la playlist.")
+                return [], "Desconocida"
+            
+            if 'entries' not in info or not info['entries']:
+                print("No se encontraron videos en la playlist o la playlist no es accesible.")
                 return [], "Desconocida"
             
             playlist_name = info.get('title', 'Desconocida')
+            print(f"Nombre de la playlist: {playlist_name}, número de videos: {len(info['entries'])}")
+            
             tracks = []
             for entry in info['entries']:
                 if not entry:
+                    print("Entrada vacía en la playlist, omitiendo...")
                     continue
                 track_name = entry.get('title', 'Desconocido')
                 duration = int(entry.get('duration', 0))  # Duración en segundos
                 album_image = entry.get('thumbnail', None)  # Usar la miniatura como imagen del álbum
-                tracks.append((track_name, album_image, duration))
+                video_id = entry.get('id', None)
+                if video_id:
+                    # Construir la URL del video para usarla como track_name
+                    video_url = f"https://www.youtube.com/watch?v={video_id}"
+                    tracks.append((video_url, album_image, duration))
+                    print(f"Video añadido: {track_name}, duración: {duration} segundos")
+                else:
+                    print(f"No se pudo obtener el ID del video para: {track_name}, omitiendo...")
             return tracks, playlist_name
+    except youtube_dl.utils.DownloadError as de:
+        print(f"Error de descarga en yt-dlp: {str(de)}")
+        return [], "Desconocida"
     except Exception as e:
-        print(f"Error al obtener la playlist de YouTube: {str(e)}")
+        print(f"Error inesperado al obtener la playlist de YouTube: {str(e)}")
         return [], "Desconocida"
