@@ -40,6 +40,7 @@ def get_spotify_playlist_info(playlist_url):
     try:
         playlist_id = playlist_url.split("playlist/")[1].split("?")[0]
         playlist_info = sp.playlist(playlist_id)
+        playlist_name = playlist_info['name']  # Obtener el nombre de la playlist
         tracks = playlist_info['tracks']['items']
         playlist_tracks = []
         for item in tracks:
@@ -50,10 +51,10 @@ def get_spotify_playlist_info(playlist_url):
                 duration_ms = track['duration_ms']
                 duration_sec = duration_ms // 1000
                 playlist_tracks.append((track_name, album_image, duration_sec))
-        return playlist_tracks
+        return playlist_tracks, playlist_name  # Devolver tanto las canciones como el nombre
     except Exception as e:
         print(f"Error al obtener info de la playlist de Spotify: {e}")
-        return []
+        return [], "Desconocida"
 
 def get_youtube_info(url_or_query, is_url=False):
     ydl_opts = {
