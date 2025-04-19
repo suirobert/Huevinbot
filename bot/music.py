@@ -109,14 +109,23 @@ class MusicControls(discord.ui.View):
         if not audio_ready_queue and not queue:
             return await interaction.followup.send("La cola está vacía. ¡Añade algunas canciones! 🎵", ephemeral=True)
         
+        # Depuración: Mostrar el contenido de las colas
+        print(f"[show_queue] audio_ready_queue: {[(item[1], item[4]) for item in audio_ready_queue]}")
+        print(f"[show_queue] queue: {[(item[1], item[4]) for item in queue]}")
+        
         embed = discord.Embed(title="📜 Cola de Canciones", color=discord.Color.blue())
         description = ""
-        combined_queue = audio_ready_queue + [(url_or_query, display_query, requester, album_image, dur, None) for url_or_query, display_query, requester, album_image, dur, _ in queue]
+        # Estandarizar el formato de las entradas para asegurar consistencia
+        combined_queue = []
+        for item in audio_ready_queue:
+            url, display_query, requester, album_image, dur, thumb = item
+            combined_queue.append((url, display_query, requester, album_image, dur, thumb))
+        for item in queue:
+            url_or_query, display_query, requester, album_image, dur, is_youtube_url = item
+            combined_queue.append((None, display_query, requester, album_image, dur, None))
+        
         for i, item in enumerate(combined_queue[:10], 1):
-            if len(item) == 6 and item[5] is not None:  # Es una entrada de audio_ready_queue
-                _, display_query, requester, _, dur, _ = item
-            else:  # Es una entrada de queue
-                _, display_query, requester, _, dur, _ = item
+            _, display_query, requester, _, dur, _ = item
             duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
             description += f"**{i}.** {display_query.split(' (')[0].strip()} • {duration_str} (por {requester.mention})\n"
         if len(combined_queue) > 10:
@@ -326,14 +335,23 @@ def setup_music_commands(bot):
         if not audio_ready_queue and not queue:
             return await ctx.send("La cola está vacía. ¡Añade algunas canciones! 🎵")
         
+        # Depuración: Mostrar el contenido de las colas
+        print(f"[queue] audio_ready_queue: {[(item[1], item[4]) for item in audio_ready_queue]}")
+        print(f"[queue] queue: {[(item[1], item[4]) for item in queue]}")
+        
         embed = discord.Embed(title="📜 Cola de Canciones", color=discord.Color.blue())
         description = ""
-        combined_queue = audio_ready_queue + [(url_or_query, display_query, requester, album_image, dur, None) for url_or_query, display_query, requester, album_image, dur, _ in queue]
+        # Estandarizar el formato de las entradas para asegurar consistencia
+        combined_queue = []
+        for item in audio_ready_queue:
+            url, display_query, requester, album_image, dur, thumb = item
+            combined_queue.append((url, display_query, requester, album_image, dur, thumb))
+        for item in queue:
+            url_or_query, display_query, requester, album_image, dur, is_youtube_url = item
+            combined_queue.append((None, display_query, requester, album_image, dur, None))
+        
         for i, item in enumerate(combined_queue[:10], 1):
-            if len(item) == 6 and item[5] is not None:  # Es una entrada de audio_ready_queue
-                _, display_query, requester, _, dur, _ = item
-            else:  # Es una entrada de queue
-                _, display_query, requester, _, dur, _ = item
+            _, display_query, requester, _, dur, _ = item
             duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
             description += f"**{i}.** {display_query.split(' (')[0].strip()} • {duration_str} (por {requester.mention})\n"
         if len(combined_queue) > 10:
