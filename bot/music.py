@@ -202,6 +202,7 @@ class MusicControls(discord.ui.View):
 
 async def play_next(ctx):
     global skip_flag, current_message, queue_messages, processing_task
+    print(f"[play_next] audio_ready_queue: {[(item[1], item[4]) for item in audio_ready_queue]}")
     if not audio_ready_queue:
         print("No hay canciones en audio_ready_queue para reproducir.")
         if queue:
@@ -213,6 +214,7 @@ async def play_next(ctx):
             if queue:
                 processing_task = asyncio.create_task(process_next_songs(ctx))
         else:
+            print("No hay más canciones en queue. Deteniendo reproducción.")
             return
 
     if not audio_ready_queue:
@@ -225,7 +227,7 @@ async def play_next(ctx):
         print("No hay voice_client disponible.")
         return
 
-    print(f"Intentando reproducir: {display_name}")
+    print(f"Intentando reproducir: {display_name}, URL: {url}")
     try:
         if vc.is_playing() or vc.is_paused():
             print("Voice client todavía está reproduciendo o pausado. Deteniendo antes de continuar...")
@@ -244,7 +246,10 @@ async def play_next(ctx):
             if e:
                 print(f"Error en reproducción: {e}")
             if not skip_flag:
-                asyncio.run_coroutine_threadsafe(play_next(ctx), ctx.bot.loop)  # Usamos ctx.bot.loop en lugar de bot.loop
+                print("Reproducción finalizada, llamando a play_next.")
+                asyncio.run_coroutine_threadsafe(play_next(ctx), ctx.bot.loop)
+            else:
+                print("Reproducción detenida por skip_flag.")
             skip_flag = False
 
         vc.play(source, after=after)
@@ -298,10 +303,12 @@ def setup_music_commands(bot):
             if playlist_tracks:
                 first_track = playlist_tracks[0]
                 track_url, track_name, album_image, dur = first_track
-                queue.append((track_url, track_name, ctx.author, album_image, dur, False))
-                print(f"Primera canción añadida a queue: {track_name}")
-                if await process_single_song(ctx, queue.pop(0)):
+                song_info = (track_url, track_name, ctx.author, album_image, dur, False)
+                if await process_single_song(ctx, song_info):
                     print(f"Primera canción procesada: {track_name}")
+                else:
+                    await loading_msg.delete()
+                    return await ctx.send(f"No se pudo procesar la primera canción de la playlist '{playlist_name}'. Intenta con otra. 🎵")
             
             # Añadir el resto de las canciones a la cola
             for track in playlist_tracks[1:]:
@@ -333,10 +340,12 @@ def setup_music_commands(bot):
             if playlist_tracks:
                 first_track = playlist_tracks[0]
                 track_url, track_name, album_image, dur = first_track
-                queue.append((track_url, track_name, ctx.author, album_image, dur, True))  # is_youtube_url=True
-                print(f"Primera canción añadida a queue: {track_name}")
-                if await process_single_song(ctx, queue.pop(0)):
+                song_info = (track_url, track_name, ctx.author, album_image, dur, True)  # is_youtube_url=True
+                if await process_single_song(ctx, song_info):
                     print(f"Primera canción procesada: {track_name}")
+                else:
+                    await loading_msg.delete()
+                    return await ctx.send(f"No se pudo procesar la primera canción de la playlist '{playlist_name}'. Intenta con otra. 🎵")
             
             # Añadir el resto de las canciones a la cola
             for track in playlist_tracks[1:]:
@@ -360,12 +369,11 @@ def setup_music_commands(bot):
         else:
             album_image = None
             dur = 0
+            display_name = query
             if is_youtube_url:
                 track_name, album_image, dur = await run_in_executor(search_spotify, query)
                 if track_name:
                     display_name = track_name
-                else:
-                    display_name = query
             elif is_spotify_track:
                 track_name, album_image, dur = await run_in_executor(get_spotify_track_info, query)
                 if not track_name:
@@ -376,26 +384,23 @@ def setup_music_commands(bot):
                 track_name, album_image, dur = await run_in_executor(search_spotify, query)
                 if track_name:
                     display_name = track_name
-                else:
-                    display_name = query
 
             song_info = (original_url or display_name, display_name, ctx.author, album_image, dur, is_youtube_url)
-            queue.append(song_info)
-            print(f"Canción añadida a queue: {display_name}")
-
-            # Procesar la canción de inmediato
-            if await process_single_song(ctx, queue.pop(0)):
+            # Procesar la canción de inmediato y solo añadir a la cola si se procesa correctamente
+            if await process_single_song(ctx, song_info):
                 print(f"Canción procesada: {display_name}")
-
-            duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
-            embed = discord.Embed(color=discord.Color.blue())
-            embed.description = (
-                f"**Añadido a la Cola** 🩸\n"
-                f"{display_name.split(' (')[0].strip()} • {duration_str}\n"
-            )
-            await loading_msg.delete()
-            msg = await ctx.send(embed=embed)
-            queue_messages.append(msg)
+                duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
+                embed = discord.Embed(color=discord.Color.blue())
+                embed.description = (
+                    f"**Añadido a la Cola** 🩸\n"
+                    f"{display_name.split(' (')[0].strip()} • {duration_str}\n"
+                )
+                await loading_msg.delete()
+                msg = await ctx.send(embed=embed)
+                queue_messages.append(msg)
+            else:
+                await loading_msg.delete()
+                return
 
         # Comenzar la reproducción si hay canciones listas
         if audio_ready_queue and not vc.is_playing() and not vc.is_paused():
