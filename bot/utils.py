@@ -2,6 +2,7 @@ import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 import yt_dlp
 from bot.config import SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET
+import re
 
 # Configuración de Spotify
 sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=SPOTIFY_CLIENT_ID, client_secret=SPOTIFY_CLIENT_SECRET))
@@ -102,12 +103,22 @@ def get_spotify_playlist_info(playlist_url):
 
 def get_youtube_playlist_info(playlist_url):
     """Obtiene información de una playlist de YouTube."""
+    # Extraer el ID de la playlist de la URL
+    playlist_id_match = re.search(r'list=([a-zA-Z0-9_-]+)', playlist_url)
+    if playlist_id_match:
+        playlist_id = playlist_id_match.group(1)
+        playlist_url_clean = f"https://www.youtube.com/playlist?list={playlist_id}"
+        print(f"[get_youtube_playlist_info] URL ajustada a playlist pura: {playlist_url_clean}")
+    else:
+        print(f"[get_youtube_playlist_info] No se encontró un ID de playlist en la URL: {playlist_url}")
+        return [], ""
+
     ydl_opts = {
         'extract_flat': True,
         'quiet': False,
         'no_warnings': False,
         'ignoreerrors': True,
-        'verbose': True,  # Añadimos verbose para obtener más detalles de yt-dlp
+        'verbose': True,
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -124,8 +135,9 @@ def get_youtube_playlist_info(playlist_url):
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
-            print(f"[get_youtube_playlist_info] Obteniendo playlist: {playlist_url}")
-            info = ydl.extract_info(playlist_url, download=False)
+            print(f"[get_youtube_playlist_info] Obteniendo playlist: {playlist_url_clean}")
+            ydl.params['verbose'] = True  # Forzamos verbose para más detalles
+            info = ydl.extract_info(playlist_url_clean, download=False)
             print(f"[get_youtube_playlist_info] Información obtenida: {info}")
             if info is None:
                 print("[get_youtube_playlist_info] No se obtuvo información de la playlist (info es None).")
