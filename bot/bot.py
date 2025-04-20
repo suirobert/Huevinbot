@@ -10,8 +10,23 @@ intents.voice_states = True
 
 bot = commands.Bot(command_prefix='-', intents=intents)
 
+# Variable para asegurarnos de que los comandos solo se registren una vez
+commands_setup_done = False
+
 @bot.event
 async def on_ready():
+    global commands_setup_done
+    if not commands_setup_done:
+        # Configurar los comandos
+        setup_music_commands(bot)
+        setup_chat_commands(bot)
+        try:
+            setup_freegames(bot)
+            print("setup_freegames ejecutado correctamente")
+        except Exception as e:
+            print(f"Error al ejecutar setup_freegames: {str(e)}")
+        commands_setup_done = True
+
     activity = discord.Game(name="insultando pendejos")
     await bot.change_presence(activity=activity)
     print(f"Bot conectado como {bot.user}")
@@ -23,19 +38,6 @@ async def on_ready():
     print("Comandos registrados:")
     for command in bot.commands:
         print(f"- {command.name}")
-
-# Configurar los comandos
-def setup():
-    setup_music_commands(bot)
-    setup_chat_commands(bot)
-    try:
-        setup_freegames(bot)
-        print("setup_freegames ejecutado correctamente")
-    except Exception as e:
-        print(f"Error al ejecutar setup_freegames: {str(e)}")
-
-# Ejecutar la configuración
-setup()
 
 @bot.event
 async def on_command_error(ctx, error):
