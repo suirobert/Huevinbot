@@ -71,17 +71,11 @@ class FreeGamesCog(commands.Cog):
         self.bot = bot
         print("Inicializando FreeGamesCog...")
 
-    @commands.command(name="freegames2")
-    async def freegames2(self, ctx):
+    @commands.command(name="freegames3")
+    async def freegames3(self, ctx):
         """Muestra un mensaje de prueba."""
-        await ctx.send("¡Comando freegames2 funcionando!")
-        print("Comando freegames2 ejecutado")
-
-    @commands.command(name="testfree2")
-    async def testfree2(self, ctx):
-        """Comando de prueba para verificar registro."""
-        await ctx.send("¡Comando testfree2 funcionando!")
-        print("Comando testfree2 ejecutado")
+        await ctx.send("¡Comando freegames3 funcionando!")
+        print("Comando freegames3 ejecutado")
 
 def setup_freegames(bot):
     print("Añadiendo FreeGamesCog al bot...")
