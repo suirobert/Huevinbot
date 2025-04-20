@@ -67,31 +67,16 @@ async def check_free_games(bot):
             print(f"No tengo permisos para enviar mensajes en el canal #juegos-gratis.")
 
 def setup_freegames(bot):
-    # Añadir el comando -freegames
+    print("Registrando comando freegames...")
     @bot.command()
     async def freegames(ctx):
-        """Muestra los juegos gratis disponibles actualmente."""
-        async with aiohttp.ClientSession() as session:
-            async with session.get("https://www.gamerpower.com/api/giveaways?sort-by=popularity") as resp:
-                if resp.status != 200:
-                    await ctx.send("No pude obtener la lista de juegos gratis en este momento. Intenta de nuevo más tarde.")
-                    return
-                games = await resp.json()
+        """Muestra un mensaje de prueba."""
+        await ctx.send("¡Comando freegames funcionando!")
+    print("Comando freegames registrado correctamente")
 
-        free_games = [game for game in games if game["type"] in ["Game", "DLC"] and game["worth"] != "N/A"]
-        if not free_games:
-            await ctx.send("No hay juegos gratis disponibles en este momento.")
-            return
-
-        embeds = []
-        for game in free_games[:5]:  # Limitar a 5 juegos para evitar spam
-            embed = discord.Embed(title=game["title"], url=game["open_giveaway_url"], color=discord.Color.green())
-            embed.add_field(name="Precio Original", value=game["worth"], inline=True)
-            embed.add_field(name="Plataforma", value=", ".join(game["platforms"].split(", ")), inline=True)
-            embed.add_field(name="Descripción", value=game["description"][:1024], inline=False)
-            if game.get("image"):
-                embed.set_thumbnail(url=game["image"])
-            embeds.append(embed)
-
-        for embed in embeds:
-            await ctx.send(embed=embed)
+    # Añadimos un segundo comando de prueba para confirmar
+    @bot.command()
+    async def testfree(ctx):
+        """Comando de prueba para verificar registro."""
+        await ctx.send("¡Comando testfree funcionando!")
+    print("Comando testfree registrado correctamente")
