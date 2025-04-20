@@ -7,9 +7,11 @@ from bot.anime import setup_anime_commands
 from bot.moderation import setup_moderation_commands
 
 # Configuración del bot
+print("Inicializando intents...")
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True  # Necesario para comandos de moderación
+print("Creando instancia del bot...")
 bot = commands.Bot(command_prefix="-", intents=intents)
 
 @bot.event
@@ -24,10 +26,18 @@ async def on_ready():
         print(f"Error al sincronizar comandos: {e}")
 
 # Cargar los comandos de los módulos
+print("Cargando módulo music...")
 setup_music_commands(bot)
+print("Cargando módulo chat...")
 setup_chat_commands(bot)
+print("Cargando módulo anime...")
 setup_anime_commands(bot)
+print("Cargando módulo moderation...")
 setup_moderation_commands(bot)
 
 # Iniciar el bot
-bot.run(DISCORD_TOKEN)
+print("Iniciando el bot...")
+try:
+    bot.run(DISCORD_TOKEN)
+except Exception as e:
+    print(f"Error al iniciar el bot: {e}")
