@@ -14,12 +14,12 @@ sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=SPOTIFY_CLI
 
 def get_youtube_info(query, is_url=False):
     ydl_opts = {
-        'format': 'bestaudio/best',
-        'quiet': True,  # Silenciar logs detallados
-        'no_warnings': True,  # No mostrar advertencias
-        'cookiefile': 'cookies.txt',  # Usar cookies para evitar bloqueos
-        'noplaylist': True,  # No procesar playlists
-        'extract_flat': True,  # No descargar, solo extraer información
+        'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio',  # Priorizar formatos confiables
+        'quiet': True,
+        'no_warnings': True,
+        'cookiefile': 'cookies.txt',
+        'noplaylist': True,
+        'extract_flat': True,
         'force_generic_extractor': True,
     }
     try:
@@ -43,11 +43,11 @@ def get_youtube_info(query, is_url=False):
 
 def get_youtube_playlist_info(url):
     ydl_opts = {
-        'format': 'bestaudio/best',
-        'quiet': True,  # Silenciar logs detallados
-        'no_warnings': True,  # No mostrar advertencias
-        'cookiefile': 'cookies.txt',  # Usar cookies para evitar bloqueos
-        'extract_flat': True,  # Solo extraer información, no descargar
+        'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio',
+        'quiet': True,
+        'no_warnings': True,
+        'cookiefile': 'cookies.txt',
+        'extract_flat': True,
     }
     try:
         with YoutubeDL(ydl_opts) as ydl:
