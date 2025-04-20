@@ -18,6 +18,8 @@ bot = commands.Bot(command_prefix="-", intents=intents)
 async def on_ready():
     print(f"Bot conectado como {bot.user}")
     try:
+        activity = discord.Game(name="insultando pendejos")
+        await bot.change_presence(activity=activity)
         guild = discord.Object(id=GUILD_ID)
         bot.tree.copy_global_to(guild=guild)
         synced = await bot.tree.sync(guild=guild)
