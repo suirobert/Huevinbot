@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 from .music import setup_music_commands
 from .chat import setup_chat_commands
-from freegames import setup_freegames, check_free_games  # Cambiado a importación absoluta
+from freegames import setup_freegames, check_free_games  # Ajustado a importación absoluta
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -19,6 +19,10 @@ async def on_ready():
     if not check_free_games.is_running():
         check_free_games.start(bot)
         print("Tarea de juegos gratis iniciada.")
+    # Listar todos los comandos registrados
+    print("Comandos registrados:")
+    for command in bot.commands:
+        print(f"- {command.name}")
 
 # Configurar los comandos
 def setup():
@@ -32,3 +36,10 @@ def setup():
 
 # Ejecutar la configuración
 setup()
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        await ctx.send("Comando no encontrado. Usa `-comandos` para ver la lista de comandos disponibles.")
+    else:
+        print(f"Error en comando: {str(error)}")
