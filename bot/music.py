@@ -14,6 +14,18 @@ current_message = None  # Referencia al mensaje actual de reproducción
 queue_messages = []  # Lista de mensajes relacionados con la cola
 processing_task = None  # Para controlar la tarea de procesamiento en segundo plano
 
+# ID del canal de música
+MUSIC_CHANNEL_ID = 1109369173580185640
+
+# Chequeo personalizado para restringir comandos al canal de música
+def music_channel_only():
+    async def predicate(ctx):
+        if ctx.channel.id != MUSIC_CHANNEL_ID:
+            await ctx.send(f"Este comando solo se puede usar en el canal de música <#{MUSIC_CHANNEL_ID}>.")
+            return False
+        return True
+    return discord.ext.commands.check(predicate)
+
 # Función para ejecutar tareas pesadas en un hilo separado
 async def run_in_executor(func, *args):
     loop = asyncio.get_running_loop()
@@ -51,9 +63,20 @@ class MusicControls(discord.ui.View):
         self.bot = bot
         self.ctx = ctx
 
+    async def check_channel(self, interaction: discord.Interaction):
+        if interaction.channel_id != MUSIC_CHANNEL_ID:
+            await interaction.followup.send(
+                f"Esta acción solo se puede realizar en el canal de música <#{MUSIC_CHANNEL_ID}>.",
+                ephemeral=True
+            )
+            return False
+        return True
+
     @discord.ui.button(label="", emoji="⏯️", style=discord.ButtonStyle.primary)
     async def pause_resume(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
+        if not await self.check_channel(interaction):
+            return
         vc = self.ctx.voice_client
         if not vc:
             return await interaction.followup.send("No estoy conectado a ningún canal de voz. 🎙️", ephemeral=True)
@@ -68,6 +91,8 @@ class MusicControls(discord.ui.View):
     async def next_song(self, interaction: discord.Interaction, button):
         global skip_flag, current_message, processing_task
         await interaction.response.defer(ephemeral=True)
+        if not await self.check_channel(interaction):
+            return
         vc = self.ctx.voice_client
         if not vc:
             return await interaction.followup.send("No estoy conectado a ningún canal de voz. 🎙️", ephemeral=True)
@@ -98,6 +123,8 @@ class MusicControls(discord.ui.View):
     async def shuffle(self, interaction: discord.Interaction, button):
         global queue, audio_ready_queue, processing_task
         await interaction.response.defer(ephemeral=True)
+        if not await self.check_channel(interaction):
+            return
         vc = self.ctx.voice_client
         if not vc:
             return await interaction.followup.send("No estoy conectado a ningún canal de voz. 🎙️", ephemeral=True)
@@ -137,6 +164,8 @@ class MusicControls(discord.ui.View):
     @discord.ui.button(label="", emoji="📜", style=discord.ButtonStyle.grey)
     async def show_queue(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
+        if not await self.check_channel(interaction):
+            return
         if not audio_ready_queue and not queue:
             return await interaction.followup.send("La cola está vacía. ¡Añade algunas canciones! 🎵", ephemeral=True)
         
@@ -173,6 +202,8 @@ class MusicControls(discord.ui.View):
     async def stop(self, interaction: discord.Interaction, button):
         global skip_flag, current_message, queue_messages, processing_task, currently_playing
         await interaction.response.defer(ephemeral=True)
+        if not await self.check_channel(interaction):
+            return
         vc = self.ctx.voice_client
         if not vc:
             return await interaction.followup.send("No estoy conectado a ningún canal de voz. 🎙️", ephemeral=True)
@@ -304,6 +335,7 @@ async def play_next(ctx):
 
 def setup_music_commands(bot):
     @bot.command(name="play")
+    @music_channel_only()
     async def play(ctx, *, query: str):
         global queue, queue_messages, processing_task
         if ctx.author.voice is None:
@@ -436,6 +468,7 @@ def setup_music_commands(bot):
             await play_next(ctx)
 
     @bot.command()
+    @music_channel_only()
     async def shuffle(ctx):
         global queue, audio_ready_queue, processing_task
         vc = ctx.voice_client
@@ -475,6 +508,7 @@ def setup_music_commands(bot):
             processing_task = asyncio.create_task(process_next_songs(ctx))
 
     @bot.command()
+    @music_channel_only()
     async def queue(ctx):
         global queue, audio_ready_queue
         if not audio_ready_queue and not queue:
@@ -509,6 +543,7 @@ def setup_music_commands(bot):
         await ctx.send(embed=embed)
 
     @bot.command()
+    @music_channel_only()
     async def leave(ctx):
         global skip_flag, current_message, queue_messages, processing_task, currently_playing
         if ctx.voice_client:
