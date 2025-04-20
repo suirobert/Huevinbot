@@ -3,10 +3,19 @@ from discord.ext import commands
 import asyncio
 
 def setup_moderation_commands(bot):
+    # Verificar permisos de moderador para todos los comandos
+    async def check_mod_perms(ctx):
+        if not ctx.author.guild_permissions.manage_roles or not ctx.author.guild_permissions.kick_members:
+            await ctx.send("No tienes permisos para usar este comando. Necesitas permisos de moderación. 🔒")
+            return False
+        return True
+
     @bot.command()
-    @commands.has_any_role(754481771323588699, 1109374840214929470)  # Admin y Moderators
     async def ban(ctx, member: discord.Member, *, reason: str = "No se especificó razón"):
         """Banea a un usuario del servidor."""
+        if not await check_mod_perms(ctx):
+            return
+        
         try:
             await member.ban(reason=reason)
             await ctx.send(f"✅ {member.mention} ha sido baneado. Razón: {reason}")
@@ -16,9 +25,11 @@ def setup_moderation_commands(bot):
             await ctx.send("Error al banear al usuario. Intenta de nuevo. 😢")
 
     @bot.command()
-    @commands.has_any_role(754481771323588699, 1109374840214929470)  # Admin y Moderators
     async def unban(ctx, user_id: int, *, reason: str = "No se especificó razón"):
         """Desbanea a un usuario del servidor usando su ID."""
+        if not await check_mod_perms(ctx):
+            return
+        
         try:
             user = await bot.fetch_user(user_id)
             await ctx.guild.unban(user, reason=reason)
@@ -31,9 +42,11 @@ def setup_moderation_commands(bot):
             await ctx.send("Error al desbanear al usuario. Intenta de nuevo. 😢")
 
     @bot.command()
-    @commands.has_any_role(754481771323588699, 1109374840214929470)  # Admin y Moderators
     async def kick(ctx, member: discord.Member, *, reason: str = "No se especificó razón"):
         """Expulsa a un usuario del servidor."""
+        if not await check_mod_perms(ctx):
+            return
+        
         try:
             await member.kick(reason=reason)
             await ctx.send(f"✅ {member.mention} ha sido expulsado. Razón: {reason}")
@@ -43,9 +56,11 @@ def setup_moderation_commands(bot):
             await ctx.send("Error al expulsar al usuario. Intenta de nuevo. 😢")
 
     @bot.command()
-    @commands.has_any_role(754481771323588699, 1109374840214929470)  # Admin y Moderators
     async def mute(ctx, member: discord.Member, duration: int, *, reason: str = "No se especificó razón"):
         """Silencia a un usuario por un tiempo específico (en minutos)."""
+        if not await check_mod_perms(ctx):
+            return
+        
         # Buscar o crear un rol de "Muted"
         mute_role = discord.utils.get(ctx.guild.roles, name="Muted")
         if not mute_role:
@@ -70,9 +85,11 @@ def setup_moderation_commands(bot):
             await ctx.send("Error al silenciar al usuario. Intenta de nuevo. 😢")
 
     @bot.command()
-    @commands.has_any_role(754481771323588699, 1109374840214929470)  # Admin y Moderators
     async def clear(ctx, amount: int):
         """Borra una cantidad específica de mensajes en el canal."""
+        if not await check_mod_perms(ctx):
+            return
+        
         if amount < 1 or amount > 100:
             return await ctx.send("Por favor, especifica una cantidad entre 1 y 100 mensajes. 📉")
         
@@ -85,9 +102,11 @@ def setup_moderation_commands(bot):
             await ctx.send("Error al borrar los mensajes. Intenta de nuevo. 😢")
 
     @bot.command()
-    @commands.has_any_role(754481771323588699, 1109374840214929470)  # Admin y Moderators
     async def role(ctx, member: discord.Member, role: discord.Role):
         """Asigna un rol a un usuario."""
+        if not await check_mod_perms(ctx):
+            return
+        
         try:
             await member.add_roles(role)
             await ctx.send(f"✅ Se ha asignado el rol {role.name} a {member.mention}.")
@@ -95,12 +114,3 @@ def setup_moderation_commands(bot):
             await ctx.send("No tengo permisos para asignar este rol. 😢")
         except discord.HTTPException:
             await ctx.send("Error al asignar el rol. Intenta de nuevo. 😢")
-
-    # Manejador de errores para permisos de roles
-    @bot.event
-    async def on_command_error(ctx, error):
-        if isinstance(error, commands.MissingAnyRole):
-            await ctx.send("No tienes permisos para usar este comando. Necesitas el rol de **Admin** o **Moderators**. 🔒")
-        elif isinstance(error, commands.CommandInvokeError):
-            # Si el error es causado por una excepción dentro del comando, no lo manejamos aquí
-            raise error
