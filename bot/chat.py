@@ -1,6 +1,6 @@
 from datetime import datetime
 from openai import OpenAI
-from .config import OPENAI_API_KEY, ALLOWED_CHANNEL_ID, ALLOWED_ROLE_ID, CONVERSATION_TIMEOUT, MAX_HISTORY
+from bot.config import OPENAI_API_KEY, ALLOWED_CHANNEL_ID, ALLOWED_ROLE_ID, CONVERSATION_TIMEOUT, MAX_HISTORY
 
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 user_conversations = {}
