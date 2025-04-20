@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 from .music import setup_music_commands
 from .chat import setup_chat_commands
-from .freegames import setup_freegames, check_free_games
+from freegames import setup_freegames, check_free_games  # Cambiado a importación absoluta
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -24,7 +24,11 @@ async def on_ready():
 def setup():
     setup_music_commands(bot)
     setup_chat_commands(bot)
-    setup_freegames(bot)
+    try:
+        setup_freegames(bot)
+        print("setup_freegames ejecutado correctamente")
+    except Exception as e:
+        print(f"Error al ejecutar setup_freegames: {str(e)}")
 
 # Ejecutar la configuración
 setup()
