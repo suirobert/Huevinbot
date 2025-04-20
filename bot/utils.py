@@ -107,6 +107,7 @@ def get_youtube_playlist_info(playlist_url):
         'quiet': False,
         'no_warnings': False,
         'ignoreerrors': True,
+        'verbose': True,  # Añadimos verbose para obtener más detalles de yt-dlp
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -147,8 +148,13 @@ def get_youtube_playlist_info(playlist_url):
                 print(f"[get_youtube_playlist_info] Añadida entrada: {entry['title']}")
             print(f"[get_youtube_playlist_info] Encontradas {len(track_list)} canciones en la playlist: {playlist_name}")
             return track_list, playlist_name
-        except Exception as e:
-            print(f"[get_youtube_playlist_info] Error detallado al obtener playlist de YouTube: {str(e)}")
+        except yt_dlp.utils.DownloadError as de:
+            print(f"[get_youtube_playlist_info] Error de descarga en yt-dlp: {str(de)}")
             import traceback
-            print(traceback.format_exc())  # Imprime el traceback completo para depuración
+            print(traceback.format_exc())
+            return [], ""
+        except Exception as e:
+            print(f"[get_youtube_playlist_info] Error inesperado al obtener playlist de YouTube: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
             return [], ""
