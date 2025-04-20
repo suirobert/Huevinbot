@@ -7,6 +7,7 @@ from bot.utils import get_youtube_info, search_spotify, get_spotify_track_info, 
 # Colas y configuraciones
 queue = []  # Cola principal: (url_or_query, display_name, requester, album_image, dur, is_youtube_url)
 audio_ready_queue = []  # Cola secundaria: (url, display_name, requester, album_image, dur, thumb)
+currently_playing = None  # Canción actualmente en reproducción: (url, display_name, requester, album_image, dur, thumb)
 skip_flag = False
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 current_message = None  # Referencia al mensaje actual de reproducción
@@ -201,8 +202,17 @@ class MusicControls(discord.ui.View):
         self.clear_items()
 
 async def play_next(ctx):
-    global skip_flag, current_message, queue_messages, processing_task
+    global skip_flag, current_message, queue_messages, processing_task, currently_playing
     print(f"[play_next] audio_ready_queue: {[(item[1], item[4]) for item in audio_ready_queue]}")
+    
+    # Limpiar mensajes de "Añadido a la Cola" después de que comience la reproducción
+    for msg in queue_messages:
+        try:
+            await msg.delete()
+        except discord.HTTPException:
+            pass
+    queue_messages.clear()
+
     if not audio_ready_queue:
         print("No hay canciones en audio_ready_queue para reproducir.")
         if queue:
@@ -215,16 +225,21 @@ async def play_next(ctx):
                 processing_task = asyncio.create_task(process_next_songs(ctx))
         else:
             print("No hay más canciones en queue. Deteniendo reproducción.")
+            currently_playing = None
             return
 
     if not audio_ready_queue:
         print("No hay más canciones para reproducir después de procesar queue.")
+        currently_playing = None
         return
 
-    url, display_name, requester, album_image, dur, thumb = audio_ready_queue.pop(0)
+    # Actualizar la canción actualmente en reproducción
+    currently_playing = audio_ready_queue.pop(0)
+    url, display_name, requester, album_image, dur, thumb = currently_playing
     vc = ctx.voice_client
     if not vc:
         print("No hay voice_client disponible.")
+        currently_playing = None
         return
 
     print(f"Intentando reproducir: {display_name}, URL: {url}")
@@ -267,11 +282,17 @@ async def play_next(ctx):
         else:
             embed.set_thumbnail(url=thumb)
 
+        if current_message:
+            try:
+                await current_message.delete()
+            except discord.HTTPException:
+                pass
         current_message = await ctx.send(embed=embed, view=MusicControls(ctx.bot, ctx))
 
     except Exception as e:
         print(f"Error detallado al reproducir {display_name}: {str(e)}")
         await ctx.send(f"Hubo un error al reproducir la canción: {str(e)}. Pasando a la siguiente... 🎶")
+        currently_playing = None
         await play_next(ctx)
 
 def setup_music_commands(bot):
