@@ -2,7 +2,6 @@ import discord
 from discord.ext import commands
 from .music import setup_music_commands
 from .chat import setup_chat_commands
-from freegames import setup_freegames, check_free_games  # Ajustado a importación absoluta
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -30,22 +29,12 @@ async def on_ready():
         except Exception as e:
             print(f"Error al ejecutar setup_chat_commands: {str(e)}")
 
-        try:
-            setup_freegames(bot)
-            print("setup_freegames ejecutado correctamente")
-        except Exception as e:
-            print(f"Error al ejecutar setup_freegames: {str(e)}")
-
         commands_setup_done = True
         print("Configuración de comandos completada")
 
     activity = discord.Game(name="insultando pendejos")
     await bot.change_presence(activity=activity)
     print(f"Bot conectado como {bot.user}")
-    # Iniciar la tarea de juegos gratis
-    if not check_free_games.is_running():
-        check_free_games.start(bot)
-        print("Tarea de juegos gratis iniciada.")
 
     # Listar todos los comandos registrados
     print("Comandos registrados:")
