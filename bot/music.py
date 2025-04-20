@@ -232,8 +232,8 @@ async def play_next(ctx):
         source = discord.FFmpegPCMAudio(
             url,
             executable='ffmpeg',
-            before_options='-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -loglevel quiet',
-            options='-vn -bufsize 64k -af "aresample=48000"'
+            before_options='-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -loglevel error',  # Cambiado a "error" para menos logs
+            options='-vn -bufsize 64k -af "aresample=48000" -ac 2 -ar 48000 -f s16le -acodec pcm_s16le'  # Añadimos opciones para asegurar compatibilidad
         )
         def after(e):
             global skip_flag
