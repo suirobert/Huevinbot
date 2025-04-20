@@ -171,14 +171,13 @@ class MusicControls(discord.ui.View):
 
     @discord.ui.button(label="", emoji="⏹️", style=discord.ButtonStyle.danger)
     async def stop(self, interaction: discord.Interaction, button):
-        global skip_flag, current_message, queue_messages, processing_task, currently_playing
+        global skip_flag, current_message, queue_messages, processing_task
         await interaction.response.defer(ephemeral=True)
         vc = self.ctx.voice_client
         if not vc:
             return await interaction.followup.send("No estoy conectado a ningún canal de voz. 🎙️", ephemeral=True)
         queue.clear()
         audio_ready_queue.clear()
-        currently_playing = None
         if processing_task and not processing_task.done():
             processing_task.cancel()
         if vc.is_playing() or vc.is_paused():
@@ -204,7 +203,6 @@ class MusicControls(discord.ui.View):
 
 async def play_next(ctx):
     global skip_flag, current_message, queue_messages, processing_task, currently_playing
-    print(f"[play_next] Iniciando función play_next")
     print(f"[play_next] audio_ready_queue: {[(item[1], item[4]) for item in audio_ready_queue]}")
     
     # Limpiar mensajes de "Añadido a la Cola" después de que comience la reproducción
@@ -236,10 +234,7 @@ async def play_next(ctx):
         return
 
     # Actualizar la canción actualmente en reproducción
-    print(f"[play_next] Actualizando currently_playing con la próxima canción")
     currently_playing = audio_ready_queue.pop(0)
-    print(f"[play_next] currently_playing actualizado: {currently_playing[1]} (duración: {currently_playing[4]} segundos)")
-    
     url, display_name, requester, album_image, dur, thumb = currently_playing
     vc = ctx.voice_client
     if not vc:
@@ -275,7 +270,6 @@ async def play_next(ctx):
         vc.play(source, after=after)
         print(f"Reproduciendo: {display_name}")
 
-        # Usar los datos de currently_playing para el mensaje
         embed = discord.Embed(color=discord.Color.blue())
         duration_str = f"[{dur // 60:02d}:{dur % 60:02d}]"
         embed.description = (
@@ -293,7 +287,6 @@ async def play_next(ctx):
                 await current_message.delete()
             except discord.HTTPException:
                 pass
-        print(f"[play_next] Enviando mensaje de 'Reproduciendo Ahora' para: {display_name}")
         current_message = await ctx.send(embed=embed, view=MusicControls(ctx.bot, ctx))
 
     except Exception as e:
@@ -510,11 +503,10 @@ def setup_music_commands(bot):
 
     @bot.command()
     async def leave(ctx):
-        global skip_flag, current_message, queue_messages, processing_task, currently_playing
+        global skip_flag, current_message, queue_messages, processing_task
         if ctx.voice_client:
             queue.clear()
             audio_ready_queue.clear()
-            currently_playing = None
             if processing_task and not processing_task.done():
                 processing_task.cancel()
             if ctx.voice_client.is_playing() or ctx.voice_client.is_paused():
