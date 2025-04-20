@@ -12,9 +12,15 @@ def get_youtube_info(query, is_youtube_url):
     ydl_opts = {
         'format': 'bestaudio/best',
         'noplaylist': True,
-        'quiet': True,
-        'no_warnings': True,
+        'quiet': False,  # Desactivamos quiet para más depuración
+        'no_warnings': False,  # Permitimos advertencias para depuración
+        'verbose': True,  # Añadimos verbose para más detalles
         'default_search': 'ytsearch' if not is_youtube_url else None,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+        },
         'extractor_args': {
             'youtube': {
                 'skip_download': True,
@@ -25,11 +31,14 @@ def get_youtube_info(query, is_youtube_url):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
             print(f"[get_youtube_info] Buscando: {query}, is_youtube_url={is_youtube_url}")
+            ydl.params['verbose'] = True  # Forzamos verbose para más detalles
             if is_youtube_url:
                 info = ydl.extract_info(query, download=False)
+                print(f"[get_youtube_info] Información del video obtenida: {info}")
             else:
                 info = ydl.extract_info(f"ytsearch:{query}", download=False)
                 info = info['entries'][0] if 'entries' in info and info['entries'] else None
+                print(f"[get_youtube_info] Información de búsqueda obtenida: {info}")
             if not info:
                 print("[get_youtube_info] No se encontró información para la consulta.")
                 return None, None, None, 0, None, None
@@ -42,8 +51,15 @@ def get_youtube_info(query, is_youtube_url):
                 info.get('webpage_url'),
                 info.get('uploader')
             )
+        except yt_dlp.utils.DownloadError as de:
+            print(f"[get_youtube_info] Error de descarga en yt-dlp: {str(de)}")
+            import traceback
+            print(traceback.format_exc())
+            return None, None, None, 0, None, None
         except Exception as e:
-            print(f"[get_youtube_info] Error al buscar en YouTube: {e}")
+            print(f"[get_youtube_info] Error inesperado al buscar en YouTube: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
             return None, None, None, 0, None, None
 
 def search_spotify(query):
@@ -136,7 +152,7 @@ def get_youtube_playlist_info(playlist_url):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
             print(f"[get_youtube_playlist_info] Obteniendo playlist: {playlist_url_clean}")
-            ydl.params['verbose'] = True  # Forzamos verbose para más detalles
+            ydl.params['verbose'] = True
             info = ydl.extract_info(playlist_url_clean, download=False)
             print(f"[get_youtube_playlist_info] Información obtenida: {info}")
             if info is None:
