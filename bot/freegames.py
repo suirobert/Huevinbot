@@ -66,36 +66,24 @@ async def check_free_games(bot):
         except discord.Forbidden:
             print(f"No tengo permisos para enviar mensajes en el canal #juegos-gratis.")
 
+class FreeGamesCog(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+        print("Inicializando FreeGamesCog...")
+
+    @commands.command(name="freegames2")
+    async def freegames2(self, ctx):
+        """Muestra un mensaje de prueba."""
+        await ctx.send("¡Comando freegames2 funcionando!")
+        print("Comando freegames2 ejecutado")
+
+    @commands.command(name="testfree2")
+    async def testfree2(self, ctx):
+        """Comando de prueba para verificar registro."""
+        await ctx.send("¡Comando testfree2 funcionando!")
+        print("Comando testfree2 ejecutado")
+
 def setup_freegames(bot):
-    print("Registrando comando freegames...")
-    try:
-        @bot.command()
-        async def freegames(ctx):
-            """Muestra los juegos gratis disponibles actualmente."""
-            async with aiohttp.ClientSession() as session:
-                async with session.get("https://www.gamerpower.com/api/giveaways?sort-by=popularity") as resp:
-                    if resp.status != 200:
-                        await ctx.send("No pude obtener la lista de juegos gratis en este momento. Intenta de nuevo más tarde.")
-                        return
-                    games = await resp.json()
-
-            free_games = [game for game in games if game["type"] in ["Game", "DLC"] and game["worth"] != "N/A"]
-            if not free_games:
-                await ctx.send("No hay juegos gratis disponibles en este momento.")
-                return
-
-            embeds = []
-            for game in free_games[:5]:  # Limitar a 5 juegos para evitar spam
-                embed = discord.Embed(title=game["title"], url=game["open_giveaway_url"], color=discord.Color.green())
-                embed.add_field(name="Precio Original", value=game["worth"], inline=True)
-                embed.add_field(name="Plataforma", value=", ".join(game["platforms"].split(", ")), inline=True)
-                embed.add_field(name="Descripción", value=game["description"][:1024], inline=False)
-                if game.get("image"):
-                    embed.set_thumbnail(url=game["image"])
-                embeds.append(embed)
-
-            for embed in embeds:
-                await ctx.send(embed=embed)
-        print("Comando freegames registrado correctamente")
-    except Exception as e:
-        print(f"Error al registrar el comando freegames: {str(e)}")
+    print("Añadiendo FreeGamesCog al bot...")
+    bot.add_cog(FreeGamesCog(bot))
+    print("FreeGamesCog añadido correctamente")
