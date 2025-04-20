@@ -2,6 +2,11 @@ import discord
 from discord.ext import commands
 from .music import setup_music_commands
 from .chat import setup_chat_commands
+import logging
+
+# Configurar el logger
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
+logger = logging.getLogger('bot')
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -16,34 +21,34 @@ commands_setup_done = False
 async def on_ready():
     global commands_setup_done
     if not commands_setup_done:
-        print("Configurando comandos...")
+        logger.info("Configurando comandos...")
         try:
             setup_music_commands(bot)
-            print("setup_music_commands ejecutado correctamente")
+            logger.info("setup_music_commands ejecutado correctamente")
         except Exception as e:
-            print(f"Error al ejecutar setup_music_commands: {str(e)}")
+            logger.error(f"Error al ejecutar setup_music_commands: {str(e)}")
 
         try:
             setup_chat_commands(bot)
-            print("setup_chat_commands ejecutado correctamente")
+            logger.info("setup_chat_commands ejecutado correctamente")
         except Exception as e:
-            print(f"Error al ejecutar setup_chat_commands: {str(e)}")
+            logger.error(f"Error al ejecutar setup_chat_commands: {str(e)}")
 
         commands_setup_done = True
-        print("Configuración de comandos completada")
+        logger.info("Configuración de comandos completada")
 
     activity = discord.Game(name="insultando pendejos")
     await bot.change_presence(activity=activity)
-    print(f"Bot conectado como {bot.user}")
+    logger.info(f"Bot conectado como {bot.user}")
 
     # Listar todos los comandos registrados
-    print("Comandos registrados:")
+    logger.info("Comandos registrados:")
     for command in bot.commands:
-        print(f"- {command.name}")
+        logger.info(f"- {command.name}")
 
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         await ctx.send("Comando no encontrado. Usa `-comandos` para ver la lista de comandos disponibles.")
     else:
-        print(f"Error en comando: {str(error)}")
+        logger.error(f"Error en comando: {str(error)}")
