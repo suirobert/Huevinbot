@@ -2,7 +2,7 @@ import discord
 import asyncio
 import concurrent.futures
 import random
-from .utils import get_youtube_info, search_spotify, get_spotify_track_info, get_spotify_playlist_info, get_youtube_playlist_info
+from bot.utils import get_youtube_info, search_spotify, get_spotify_track_info, get_spotify_playlist_info, get_youtube_playlist_info
 
 # Colas y configuraciones
 queue = []  # Cola principal: (url_or_query, display_name, requester, album_image, dur, is_youtube_url)
@@ -244,7 +244,7 @@ async def play_next(ctx):
             if e:
                 print(f"Error en reproducción: {e}")
             if not skip_flag:
-                asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop)
+                asyncio.run_coroutine_threadsafe(play_next(ctx), ctx.bot.loop)  # Usamos ctx.bot.loop en lugar de bot.loop
             skip_flag = False
 
         vc.play(source, after=after)
