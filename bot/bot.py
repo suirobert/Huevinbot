@@ -50,5 +50,8 @@ async def on_ready():
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         await ctx.send("Comando no encontrado. Usa `-comandos` para ver la lista de comandos disponibles.")
+    elif isinstance(error, commands.CheckFailure):
+        # No hacer nada: el mensaje ya fue enviado por el chequeo music_channel_only
+        logger.info(f"CheckFailure ignorado: {ctx.command.name} usado en canal incorrecto (ID: {ctx.channel.id})")
     else:
         logger.error(f"Error en comando: {str(error)}")
