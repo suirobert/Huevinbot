@@ -17,15 +17,27 @@ commands_setup_done = False
 async def on_ready():
     global commands_setup_done
     if not commands_setup_done:
-        # Configurar los comandos
-        setup_music_commands(bot)
-        setup_chat_commands(bot)
+        print("Configurando comandos...")
+        try:
+            setup_music_commands(bot)
+            print("setup_music_commands ejecutado correctamente")
+        except Exception as e:
+            print(f"Error al ejecutar setup_music_commands: {str(e)}")
+
+        try:
+            setup_chat_commands(bot)
+            print("setup_chat_commands ejecutado correctamente")
+        except Exception as e:
+            print(f"Error al ejecutar setup_chat_commands: {str(e)}")
+
         try:
             setup_freegames(bot)
             print("setup_freegames ejecutado correctamente")
         except Exception as e:
             print(f"Error al ejecutar setup_freegames: {str(e)}")
+
         commands_setup_done = True
+        print("Configuración de comandos completada")
 
     activity = discord.Game(name="insultando pendejos")
     await bot.change_presence(activity=activity)
@@ -34,6 +46,7 @@ async def on_ready():
     if not check_free_games.is_running():
         check_free_games.start(bot)
         print("Tarea de juegos gratis iniciada.")
+
     # Listar todos los comandos registrados
     print("Comandos registrados:")
     for command in bot.commands:
