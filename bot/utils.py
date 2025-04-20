@@ -117,7 +117,7 @@ def get_youtube_playlist_info(playlist_url):
                 'skip_download': True,
                 'geo_bypass': True,
                 'force_generic_extractor': False,
-                'playlist_items': '1-100',  # Limitamos a 100 videos para evitar problemas con playlists grandes
+                'playlist_items': '1-100',
             }
         }
     }
@@ -126,6 +126,9 @@ def get_youtube_playlist_info(playlist_url):
             print(f"[get_youtube_playlist_info] Obteniendo playlist: {playlist_url}")
             info = ydl.extract_info(playlist_url, download=False)
             print(f"[get_youtube_playlist_info] Información obtenida: {info}")
+            if info is None:
+                print("[get_youtube_playlist_info] No se obtuvo información de la playlist (info es None).")
+                return [], ""
             if 'entries' not in info or not info['entries']:
                 print("[get_youtube_playlist_info] No se encontraron entradas en la playlist de YouTube.")
                 return [], ""
@@ -145,5 +148,7 @@ def get_youtube_playlist_info(playlist_url):
             print(f"[get_youtube_playlist_info] Encontradas {len(track_list)} canciones en la playlist: {playlist_name}")
             return track_list, playlist_name
         except Exception as e:
-            print(f"[get_youtube_playlist_info] Error al obtener playlist de YouTube: {e}")
+            print(f"[get_youtube_playlist_info] Error detallado al obtener playlist de YouTube: {str(e)}")
+            import traceback
+            print(traceback.format_exc())  # Imprime el traceback completo para depuración
             return [], ""
