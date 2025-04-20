@@ -13,7 +13,7 @@ def get_youtube_info(query, is_youtube_url):
         'noplaylist': True,
         'quiet': True,
         'no_warnings': True,
-        'default_search': 'ytsearch' if not is_youtube_url else None,  # Añadimos búsqueda automática si no es URL
+        'default_search': 'ytsearch' if not is_youtube_url else None,
         'extractor_args': {
             'youtube': {
                 'skip_download': True,
@@ -104,12 +104,14 @@ def get_youtube_playlist_info(playlist_url):
     """Obtiene información de una playlist de YouTube."""
     ydl_opts = {
         'extract_flat': True,
-        'quiet': True,
-        'no_warnings': True,
+        'quiet': False,  # Desactivamos quiet para obtener más detalles en los logs
+        'no_warnings': False,  # Permitimos advertencias para depuración
+        'ignoreerrors': True,  # Ignoramos errores de videos individuales
         'extractor_args': {
             'youtube': {
                 'skip_download': True,
                 'geo_bypass': True,
+                'force_generic_extractor': False,
             }
         }
     }
@@ -117,13 +119,15 @@ def get_youtube_playlist_info(playlist_url):
         try:
             print(f"[get_youtube_playlist_info] Obteniendo playlist: {playlist_url}")
             info = ydl.extract_info(playlist_url, download=False)
-            if 'entries' not in info:
+            print(f"[get_youtube_playlist_info] Información obtenida: {info}")
+            if 'entries' not in info or not info['entries']:
                 print("[get_youtube_playlist_info] No se encontraron entradas en la playlist de YouTube.")
                 return [], ""
             playlist_name = info.get('title', 'Playlist')
             track_list = []
             for entry in info['entries']:
                 if not entry:
+                    print("[get_youtube_playlist_info] Entrada vacía, omitiendo.")
                     continue
                 track_list.append((
                     entry['url'],
@@ -131,6 +135,7 @@ def get_youtube_playlist_info(playlist_url):
                     None,  # YouTube no proporciona imagen de álbum directamente
                     entry.get('duration', 0)
                 ))
+                print(f"[get_youtube_playlist_info] Añadida entrada: {entry['title']}")
             print(f"[get_youtube_playlist_info] Encontradas {len(track_list)} canciones en la playlist: {playlist_name}")
             return track_list, playlist_name
         except Exception as e:
