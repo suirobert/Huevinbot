@@ -104,14 +104,20 @@ def get_youtube_playlist_info(playlist_url):
     """Obtiene información de una playlist de YouTube."""
     ydl_opts = {
         'extract_flat': True,
-        'quiet': False,  # Desactivamos quiet para obtener más detalles en los logs
-        'no_warnings': False,  # Permitimos advertencias para depuración
-        'ignoreerrors': True,  # Ignoramos errores de videos individuales
+        'quiet': False,
+        'no_warnings': False,
+        'ignoreerrors': True,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+        },
         'extractor_args': {
             'youtube': {
                 'skip_download': True,
                 'geo_bypass': True,
                 'force_generic_extractor': False,
+                'playlist_items': '1-100',  # Limitamos a 100 videos para evitar problemas con playlists grandes
             }
         }
     }
@@ -132,7 +138,7 @@ def get_youtube_playlist_info(playlist_url):
                 track_list.append((
                     entry['url'],
                     entry['title'],
-                    None,  # YouTube no proporciona imagen de álbum directamente
+                    None,
                     entry.get('duration', 0)
                 ))
                 print(f"[get_youtube_playlist_info] Añadida entrada: {entry['title']}")
