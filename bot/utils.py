@@ -13,53 +13,74 @@ def get_youtube_info(query, is_youtube_url):
         'noplaylist': True,
         'quiet': True,
         'no_warnings': True,
+        'default_search': 'ytsearch' if not is_youtube_url else None,  # Añadimos búsqueda automática si no es URL
+        'extractor_args': {
+            'youtube': {
+                'skip_download': True,
+                'geo_bypass': True,
+            }
+        }
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
-            info = ydl.extract_info(query, download=False)
+            print(f"[get_youtube_info] Buscando: {query}, is_youtube_url={is_youtube_url}")
+            if is_youtube_url:
+                info = ydl.extract_info(query, download=False)
+            else:
+                info = ydl.extract_info(f"ytsearch:{query}", download=False)
+                info = info['entries'][0] if 'entries' in info and info['entries'] else None
+            if not info:
+                print("[get_youtube_info] No se encontró información para la consulta.")
+                return None, None, None, 0, None, None
+            print(f"[get_youtube_info] Encontrado: {info.get('title')}, URL: {info.get('url')}")
             return (
                 info.get('url'),
                 info.get('title'),
                 info.get('thumbnail'),
-                info.get('duration'),
+                info.get('duration', 0),
                 info.get('webpage_url'),
                 info.get('uploader')
             )
         except Exception as e:
-            print(f"Error al buscar en YouTube: {e}")
+            print(f"[get_youtube_info] Error al buscar en YouTube: {e}")
             return None, None, None, 0, None, None
 
 def search_spotify(query):
     """Busca una canción en Spotify y devuelve su nombre, imagen y duración."""
     try:
+        print(f"[search_spotify] Buscando: {query}")
         results = sp.search(q=query, type='track', limit=1)
         track = results['tracks']['items'][0]
+        print(f"[search_spotify] Encontrado: {track['name']} ({track['artists'][0]['name']})")
         return (
             f"{track['name']} ({track['artists'][0]['name']})",
             track['album']['images'][0]['url'] if track['album']['images'] else None,
             track['duration_ms'] // 1000
         )
     except Exception as e:
-        print(f"Error al buscar en Spotify: {e}")
+        print(f"[search_spotify] Error al buscar en Spotify: {e}")
         return None, None, 0
 
 def get_spotify_track_info(track_url):
     """Obtiene información de una pista de Spotify a partir de su URL."""
     try:
+        print(f"[get_spotify_track_info] Obteniendo pista: {track_url}")
         track_id = track_url.split('/')[-1].split('?')[0]
         track = sp.track(track_id)
+        print(f"[get_spotify_track_info] Encontrado: {track['name']} ({track['artists'][0]['name']})")
         return (
             f"{track['name']} ({track['artists'][0]['name']})",
             track['album']['images'][0]['url'] if track['album']['images'] else None,
             track['duration_ms'] // 1000
         )
     except Exception as e:
-        print(f"Error al obtener pista de Spotify: {e}")
+        print(f"[get_spotify_track_info] Error al obtener pista de Spotify: {e}")
         return None, None, 0
 
 def get_spotify_playlist_info(playlist_url):
     """Obtiene información de una playlist de Spotify."""
     try:
+        print(f"[get_spotify_playlist_info] Obteniendo playlist: {playlist_url}")
         playlist_id = playlist_url.split('/')[-1].split('?')[0]
         playlist = sp.playlist(playlist_id)
         tracks = playlist['tracks']['items']
@@ -73,9 +94,10 @@ def get_spotify_playlist_info(playlist_url):
                 track['album']['images'][0]['url'] if track['album']['images'] else None,
                 track['duration_ms'] // 1000
             ))
+        print(f"[get_spotify_playlist_info] Encontradas {len(track_list)} canciones en la playlist: {playlist_name}")
         return track_list, playlist_name
     except Exception as e:
-        print(f"Error al obtener playlist de Spotify: {e}")
+        print(f"[get_spotify_playlist_info] Error al obtener playlist de Spotify: {e}")
         return [], ""
 
 def get_youtube_playlist_info(playlist_url):
@@ -84,20 +106,33 @@ def get_youtube_playlist_info(playlist_url):
         'extract_flat': True,
         'quiet': True,
         'no_warnings': True,
+        'extractor_args': {
+            'youtube': {
+                'skip_download': True,
+                'geo_bypass': True,
+            }
+        }
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
+            print(f"[get_youtube_playlist_info] Obteniendo playlist: {playlist_url}")
             info = ydl.extract_info(playlist_url, download=False)
+            if 'entries' not in info:
+                print("[get_youtube_playlist_info] No se encontraron entradas en la playlist de YouTube.")
+                return [], ""
             playlist_name = info.get('title', 'Playlist')
             track_list = []
             for entry in info['entries']:
+                if not entry:
+                    continue
                 track_list.append((
                     entry['url'],
                     entry['title'],
                     None,  # YouTube no proporciona imagen de álbum directamente
                     entry.get('duration', 0)
                 ))
+            print(f"[get_youtube_playlist_info] Encontradas {len(track_list)} canciones en la playlist: {playlist_name}")
             return track_list, playlist_name
         except Exception as e:
-            print(f"Error al obtener playlist de YouTube: {e}")
+            print(f"[get_youtube_playlist_info] Error al obtener playlist de YouTube: {e}")
             return [], ""
