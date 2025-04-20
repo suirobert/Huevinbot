@@ -3,7 +3,7 @@ from discord.ext import commands
 import aiohttp
 import json
 
-# Configuración del bot (puedes mover esto a config.py si prefieres)
+# Configuración del bot
 ANILIST_API_URL = "https://graphql.anilist.co"
 
 # Consulta GraphQL para buscar anime
