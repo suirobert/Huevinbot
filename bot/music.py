@@ -13,6 +13,7 @@ executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 current_message = None  # Referencia al mensaje actual de reproducción
 queue_messages = []  # Lista de mensajes relacionados con la cola
 processing_task = None  # Para controlar la tarea de procesamiento en segundo plano
+monitor_task = None  # Para controlar la tarea de monitoreo de desconexión
 
 # ID del canal de música
 MUSIC_CHANNEL_ID = 1109369173580185640
@@ -157,7 +158,7 @@ class MusicControls(discord.ui.View):
         
         await interaction.followup.send("🔀 ¡Cola mezclada! Las próximas canciones se reproducirán en orden aleatorio.", ephemeral=True)
         
-        # Iniciar el procesamiento en segundo plano para las canciones restantes
+        # Iniciar procesamiento en segundo plano para las canciones restantes
         if queue:
             processing_task = asyncio.create_task(process_next_songs(self.ctx))
 
@@ -200,7 +201,7 @@ class MusicControls(discord.ui.View):
 
     @discord.ui.button(label="", emoji="⏹️", style=discord.ButtonStyle.danger)
     async def stop(self, interaction: discord.Interaction, button):
-        global skip_flag, current_message, queue_messages, processing_task, currently_playing
+        global skip_flag, current_message, queue_messages, processing_task, currently_playing, monitor_task
         await interaction.response.defer(ephemeral=True)
         if not await self.check_channel(interaction):
             return
@@ -212,6 +213,8 @@ class MusicControls(discord.ui.View):
         currently_playing = None
         if processing_task and not processing_task.done():
             processing_task.cancel()
+        if monitor_task and not monitor_task.done():
+            monitor_task.cancel()
         if vc.is_playing() or vc.is_paused():
             skip_flag = True
             vc.stop()
@@ -234,7 +237,7 @@ class MusicControls(discord.ui.View):
         self.clear_items()
 
 async def play_next(ctx):
-    global skip_flag, current_message, queue_messages, processing_task, currently_playing
+    global skip_flag, current_message, queue_messages, processing_task, currently_playing, monitor_task
     print(f"[play_next] Iniciando función play_next")
     print(f"[play_next] audio_ready_queue: {[(item[1], item[4]) for item in audio_ready_queue]}")
     
@@ -327,17 +330,92 @@ async def play_next(ctx):
         print(f"[play_next] Enviando mensaje de 'Reproduciendo Ahora' para: {display_name}")
         current_message = await ctx.send(embed=embed, view=MusicControls(ctx.bot, ctx))
 
+        # Reiniciar el monitoreo de actividad
+        if monitor_task and not monitor_task.done():
+            monitor_task.cancel()
+        monitor_task = asyncio.create_task(monitor_disconnect(ctx))
+
     except Exception as e:
         print(f"Error detallado al reproducir {display_name}: {str(e)}")
         await ctx.send(f"Hubo un error al reproducir la canción: {str(e)}. Pasando a la siguiente... 🎶")
         currently_playing = None
         await play_next(ctx)
 
+async def monitor_disconnect(ctx):
+    """Monitorea la desconexión automática si no hay usuarios o actividad."""
+    global monitor_task, current_message, queue_messages, currently_playing
+    vc = ctx.voice_client
+    last_activity = asyncio.get_event_loop().time()  # Tiempo de la última actividad
+    empty_channel_count = 0  # Contador para 5 minutos sin usuarios
+    inactivity_count = 0  # Contador para 30 minutos sin canciones
+
+    while vc and vc.is_connected():
+        current_time = asyncio.get_event_loop().time()
+        channel_members = vc.channel.members
+        has_users = any(member.bot is False for member in channel_members)  # Excluir bots
+
+        # Actualizar última actividad si hay cola o reproducción
+        if audio_ready_queue or queue or (currently_playing and vc.is_playing()):
+            last_activity = current_time
+
+        # Verificar si el canal está vacío
+        if not has_users:
+            empty_channel_count += 1
+            print(f"[monitor_disconnect] Canal vacío por {empty_channel_count * 30} segundos")
+            if empty_channel_count >= 10:  # 10 * 30 segundos = 5 minutos
+                print("[monitor_disconnect] Desconectando por canal vacío.")
+                queue.clear()
+                audio_ready_queue.clear()
+                currently_playing = None
+                if vc.is_playing() or vc.is_paused():
+                    vc.stop()
+                await vc.disconnect()
+                if current_message:
+                    try:
+                        await current_message.delete()
+                    except discord.HTTPException:
+                        pass
+                    current_message = None
+                for msg in queue_messages:
+                    try:
+                        await msg.delete()
+                    except discord.HTTPException:
+                        pass
+                queue_messages.clear()
+                return
+        else:
+            empty_channel_count = 0
+
+        # Verificar inactividad (30 minutos sin actividad)
+        if current_time - last_activity >= 1800:  # 1800 segundos = 30 minutos
+            print("[monitor_disconnect] Desconectando por inactividad de 30 minutos.")
+            queue.clear()
+            audio_ready_queue.clear()
+            currently_playing = None
+            if vc.is_playing() or vc.is_paused():
+                vc.stop()
+            await vc.disconnect()
+            if current_message:
+                try:
+                    await current_message.delete()
+                except discord.HTTPException:
+                    pass
+                current_message = None
+            for msg in queue_messages:
+                try:
+                    await msg.delete()
+                except discord.HTTPException:
+                    pass
+            queue_messages.clear()
+            return
+
+        await asyncio.sleep(30)  # Verificar cada 30 segundos
+
 def setup_music_commands(bot):
     @bot.command(name="play")
     @music_channel_only()
     async def play(ctx, *, query: str):
-        global queue, queue_messages, processing_task
+        global queue, queue_messages, processing_task, monitor_task
         if ctx.author.voice is None:
             return await ctx.send("Debes estar en un canal de voz para usar este comando. 🎙️")
 
@@ -467,6 +545,11 @@ def setup_music_commands(bot):
             print("Comenzando reproducción después de añadir pista...")
             await play_next(ctx)
 
+        # Iniciar o reiniciar el monitoreo de desconexión
+        if monitor_task and not monitor_task.done():
+            monitor_task.cancel()
+        monitor_task = asyncio.create_task(monitor_disconnect(ctx))
+
     @bot.command()
     @music_channel_only()
     async def shuffle(ctx):
@@ -507,6 +590,11 @@ def setup_music_commands(bot):
         if queue:
             processing_task = asyncio.create_task(process_next_songs(ctx))
 
+        # Reiniciar el monitoreo de desconexión
+        if monitor_task and not monitor_task.done():
+            monitor_task.cancel()
+        monitor_task = asyncio.create_task(monitor_disconnect(ctx))
+
     @bot.command()
     @music_channel_only()
     async def queue(ctx):
@@ -545,13 +633,15 @@ def setup_music_commands(bot):
     @bot.command()
     @music_channel_only()
     async def leave(ctx):
-        global skip_flag, current_message, queue_messages, processing_task, currently_playing
+        global skip_flag, current_message, queue_messages, processing_task, currently_playing, monitor_task
         if ctx.voice_client:
             queue.clear()
             audio_ready_queue.clear()
             currently_playing = None
             if processing_task and not processing_task.done():
                 processing_task.cancel()
+            if monitor_task and not monitor_task.done():
+                monitor_task.cancel()
             if ctx.voice_client.is_playing() or ctx.voice_client.is_paused():
                 skip_flag = True
                 ctx.voice_client.stop()
@@ -586,3 +676,10 @@ def setup_music_commands(bot):
             "-huevin <mensaje>: Habla con Huevín (solo en el canal autorizado y con el rol @Friends). 😈"
         )
         await ctx.send(embed=discord.Embed(description=desc, color=discord.Color.teal()))
+
+    # Iniciar el monitoreo al conectar
+    @bot.event
+    async def on_voice_state_update(member, before, after):
+        global monitor_task
+        if member == bot.user and after.channel and not monitor_task:
+            monitor_task = asyncio.create_task(monitor_disconnect(member.guild.voice_client))
