@@ -7,3 +7,4 @@ openai
 PyNaCl
 aiohttp
 youtube-search-python
+pytube
