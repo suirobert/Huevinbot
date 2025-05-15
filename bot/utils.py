@@ -1,6 +1,7 @@
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 import yt_dlp
+from youtube_search import YoutubeSearch
 from bot.config import SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET
 import re
 
@@ -12,10 +13,9 @@ def get_youtube_info(query, is_youtube_url):
     ydl_opts = {
         'format': 'bestaudio/best',
         'noplaylist': True,
-        'quiet': False,  # Desactivamos quiet para más depuración
-        'no_warnings': False,  # Permitimos advertencias para depuración
-        'verbose': True,  # Añadimos verbose para más detalles
-        'default_search': 'ytsearch' if not is_youtube_url else None,
+        'quiet': False,
+        'no_warnings': False,
+        'verbose': True,
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -31,14 +31,25 @@ def get_youtube_info(query, is_youtube_url):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
             print(f"[get_youtube_info] Buscando: {query}, is_youtube_url={is_youtube_url}")
-            ydl.params['verbose'] = True  # Forzamos verbose para más detalles
+            ydl.params['verbose'] = True
             if is_youtube_url:
+                # Si es un enlace directo, usar yt-dlp
                 info = ydl.extract_info(query, download=False)
                 print(f"[get_youtube_info] Información del video obtenida: {info}")
             else:
-                info = ydl.extract_info(f"ytsearch:{query}", download=False)
-                info = info['entries'][0] if 'entries' in info and info['entries'] else None
-                print(f"[get_youtube_info] Información de búsqueda obtenida: {info}")
+                # Si es una búsqueda por nombre, usar youtube-search-python
+                search = YoutubeSearch(query, max_results=1).to_dict()
+                if search and 'videos' in search and search['videos']:
+                    video = search['videos'][0]
+                    video_id = video['id']
+                    url = f"https://www.youtube.com/watch?v={video_id}"
+                    title = video['title']
+                    # Obtener el enlace de streaming con yt-dlp
+                    info = ydl.extract_info(url, download=False)
+                    print(f"[get_youtube_info] Información de búsqueda obtenida: {info}")
+                else:
+                    print("[get_youtube_info] No se encontraron resultados para la búsqueda.")
+                    return None, None, None, 0, None, None
             if not info:
                 print("[get_youtube_info] No se encontró información para la consulta.")
                 return None, None, None, 0, None, None
