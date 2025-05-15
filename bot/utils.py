@@ -1,7 +1,7 @@
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 import yt_dlp
-from youtube_search import YoutubeSearch
+from pytube import Search
 from bot.config import SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET
 import re
 
@@ -37,13 +37,13 @@ def get_youtube_info(query, is_youtube_url):
                 info = ydl.extract_info(query, download=False)
                 print(f"[get_youtube_info] Información del video obtenida: {info}")
             else:
-                # Si es una búsqueda por nombre, usar youtube-search-python
-                search = YoutubeSearch(query, max_results=1).to_dict()
-                if search and 'videos' in search and search['videos']:
-                    video = search['videos'][0]
-                    video_id = video['id']
-                    url = f"https://www.youtube.com/watch?v={video_id}"
-                    title = video['title']
+                # Si es una búsqueda por nombre, usar pytube
+                search = Search(query)
+                videos = search.results
+                if videos:
+                    video = videos[0]  # Primer resultado
+                    url = video.watch_url
+                    title = video.title
                     # Obtener el enlace de streaming con yt-dlp
                     info = ydl.extract_info(url, download=False)
                     print(f"[get_youtube_info] Información de búsqueda obtenida: {info}")
